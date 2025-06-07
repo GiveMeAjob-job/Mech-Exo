@@ -1,0 +1,35 @@
+# API Keys Configuration
+# Copy this to api_keys_local.yml and fill in your actual keys
+# Never commit actual API keys to version control
+
+interactive_brokers:
+  client_id: 1  # Your IB client ID
+  host: "127.0.0.1"
+  port: 7497  # 7497 for paper trading, 7496 for live
+  readonly: false
+
+finnhub:
+  api_key: "YOUR_FINNHUB_API_KEY_HERE"
+  base_url: "https://finnhub.io/api/v1"
+
+alpha_vantage:
+  api_key: "YOUR_ALPHA_VANTAGE_API_KEY_HERE"
+  base_url: "https://www.alphavantage.co/query"
+
+polygon:
+  api_key: "YOUR_POLYGON_API_KEY_HERE"
+  base_url: "https://api.polygon.io"
+
+# News APIs
+news_api:
+  api_key: "YOUR_NEWS_API_KEY_HERE"
+  base_url: "https://newsapi.org/v2"
+
+# Notifications
+slack:
+  webhook_url: "YOUR_SLACK_WEBHOOK_URL_HERE"
+  channel: "#trading-alerts"
+
+telegram:
+  bot_token: "YOUR_TELEGRAM_BOT_TOKEN_HERE"
+  chat_id: "YOUR_TELEGRAM_CHAT_ID_HERE"

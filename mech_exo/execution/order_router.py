@@ -4,6 +4,7 @@ Order router with pre-trade risk checks and retry logic
 
 import asyncio
 import logging
+import time
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -11,8 +12,10 @@ from enum import Enum
 
 from .broker_adapter import BrokerAdapter, BrokerStatus
 from .models import Order, Fill, OrderStatus, validate_order, ExecutionError, RiskViolationError
+from .safety_valve import SafetyValve
 from ..risk import RiskChecker, Portfolio, Position
 from ..utils import ConfigManager
+from ..utils.structured_logging import ExecutionLogger, ExecutionContext, timed_execution, execution_timer
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +67,13 @@ class OrderRouter:
         self.risk_checker = risk_checker
         self.config = config or {}
         
+        # Setup structured logging
+        self.execution_context = ExecutionContext.create(
+            component="order_router",
+            account_id=getattr(broker, 'account_id', None)
+        )
+        self.execution_logger = ExecutionLogger(__name__, self.execution_context)
+        
         # Retry configuration
         self.retry_config = RetryConfig(
             max_retries=self.config.get('max_retries', 3),
@@ -93,62 +103,156 @@ class OrderRouter:
         self.daily_order_count = 0
         self.last_reset_date = datetime.now().date()
         
+        # Initialize safety valve
+        safety_config = self.config.get('safety', {})
+        self.safety_valve = SafetyValve(broker, safety_config)
+        
+        # Track if live trading has been authorized
+        self._live_trading_authorized = False
+        
+        # Performance tracking
+        self._order_start_times: Dict[str, float] = {}
+        
         logger.info("OrderRouter initialized with retry config: %s", self.retry_config)
+        
+        # Log initialization
+        self.execution_logger.system_event(
+            system="order_router",
+            status="initialized",
+            message="OrderRouter initialized",
+            max_retries=self.retry_config.max_retries,
+            max_daily_orders=self.max_daily_orders,
+            max_order_value=self.max_order_value
+        )
     
+    @timed_execution("route_order")
     async def route_order(self, order: Order) -> RoutingResult:
         """
         Route an order through the complete workflow
         """
+        # Start performance tracking
+        self._order_start_times[order.order_id] = time.perf_counter()
+        
+        # Log order received
+        self.execution_logger.order_event(
+            event_type="received",
+            order_id=order.order_id,
+            symbol=order.symbol,
+            message=f"Order received for routing: {order.symbol} {order.quantity} {order.order_type.value}",
+            quantity=order.quantity,
+            order_type=order.order_type.value,
+            limit_price=order.limit_price,
+            stop_price=order.stop_price,
+            strategy=order.strategy,
+            signal_strength=order.signal_strength
+        )
+        
         try:
             # Reset daily counter if needed
             self._reset_daily_counters()
             
             logger.info(f"Routing order: {order.symbol} {order.quantity} {order.order_type.value}")
             
-            # Step 1: Validate order format
-            validation_errors = validate_order(order)
-            if validation_errors:
-                result = RoutingResult(
-                    decision=RoutingDecision.REJECT,
-                    original_order=order,
-                    rejection_reason=f"Validation errors: {', '.join(validation_errors)}"
-                )
-                logger.warning(f"Order validation failed: {result.rejection_reason}")
-                self._notify_routing_callbacks(result)
-                return result
+            # Step 1: Live trading authorization (if needed)
+            with execution_timer(self.execution_logger, "authorization_check", order_id=order.order_id):
+                auth_result = await self._check_live_trading_authorization()
+                if not auth_result:
+                    result = RoutingResult(
+                        decision=RoutingDecision.REJECT,
+                        original_order=order,
+                        rejection_reason="Live trading not authorized or safety valve blocked"
+                    )
+                    self._log_routing_decision(order, result, "authorization_failed")
+                    self._notify_routing_callbacks(result)
+                    return result
             
-            # Step 2: Pre-trade risk checks
-            routing_result = await self._pre_trade_risk_check(order)
+            # Step 2: Validate order format
+            with execution_timer(self.execution_logger, "order_validation", order_id=order.order_id):
+                validation_errors = validate_order(order)
+                if validation_errors:
+                    result = RoutingResult(
+                        decision=RoutingDecision.REJECT,
+                        original_order=order,
+                        rejection_reason=f"Validation errors: {', '.join(validation_errors)}"
+                    )
+                    self._log_routing_decision(order, result, "validation_failed", validation_errors=validation_errors)
+                    self._notify_routing_callbacks(result)
+                    return result
             
-            if routing_result.decision == RoutingDecision.REJECT:
-                logger.warning(f"Order rejected by risk check: {routing_result.rejection_reason}")
-                self._notify_routing_callbacks(routing_result)
-                return routing_result
+            # Step 3: Pre-trade risk checks
+            with execution_timer(self.execution_logger, "risk_check", order_id=order.order_id):
+                routing_result = await self._pre_trade_risk_check(order)
+                
+                if routing_result.decision == RoutingDecision.REJECT:
+                    self._log_routing_decision(order, routing_result, "risk_rejected")
+                    self._notify_routing_callbacks(routing_result)
+                    return routing_result
             
             # Use modified order if available
             final_order = routing_result.modified_order or order
+            if routing_result.modified_order:
+                self.execution_logger.order_event(
+                    event_type="modified",
+                    order_id=order.order_id,
+                    symbol=order.symbol,
+                    message="Order modified by risk check",
+                    original_quantity=order.quantity,
+                    modified_quantity=final_order.quantity,
+                    modification_reason=routing_result.routing_notes
+                )
             
-            # Step 3: Safety checks
-            safety_result = self._safety_checks(final_order)
-            if safety_result.decision == RoutingDecision.REJECT:
-                logger.warning(f"Order rejected by safety check: {safety_result.rejection_reason}")
-                self._notify_routing_callbacks(safety_result)
-                return safety_result
+            # Step 4: Safety valve order check
+            with execution_timer(self.execution_logger, "safety_valve_check", order_id=order.order_id):
+                safety_valve_result = await self.safety_valve.check_order_safety(final_order)
+                if not safety_valve_result['approved']:
+                    result = RoutingResult(
+                        decision=RoutingDecision.REJECT,
+                        original_order=order,
+                        rejection_reason=f"Safety valve: {safety_valve_result['reason']}",
+                        risk_warnings=safety_valve_result.get('warnings', [])
+                    )
+                    self._log_routing_decision(order, result, "safety_valve_rejected", 
+                                             safety_reason=safety_valve_result['reason'])
+                    self._notify_routing_callbacks(result)
+                    return result
             
-            # Step 4: Route to broker with retry logic
-            execution_result = await self._execute_with_retry(final_order)
+            # Add safety warnings to routing result
+            if safety_valve_result.get('warnings'):
+                routing_result.risk_warnings.extend(safety_valve_result['warnings'])
+            
+            # Step 5: Additional safety checks
+            with execution_timer(self.execution_logger, "additional_safety_checks", order_id=order.order_id):
+                safety_result = self._safety_checks(final_order)
+                if safety_result.decision == RoutingDecision.REJECT:
+                    self._log_routing_decision(order, safety_result, "safety_checks_failed")
+                    self._notify_routing_callbacks(safety_result)
+                    return safety_result
+            
+            # Step 6: Route to broker with retry logic
+            with execution_timer(self.execution_logger, "broker_execution", order_id=order.order_id):
+                execution_result = await self._execute_with_retry(final_order)
             
             # Update routing result with execution outcome
             if execution_result['status'] == 'SUBMITTED':
                 routing_result.decision = RoutingDecision.APPROVE
                 routing_result.routing_notes = f"Order submitted to broker: {execution_result.get('broker_order_id')}"
                 self.daily_order_count += 1
+                
+                self._log_routing_decision(order, routing_result, "approved",
+                                          broker_order_id=execution_result.get('broker_order_id'))
             else:
                 routing_result.decision = RoutingDecision.REJECT
                 routing_result.rejection_reason = f"Broker execution failed: {execution_result.get('message', 'Unknown error')}"
+                
+                self._log_routing_decision(order, routing_result, "broker_execution_failed",
+                                          broker_error=execution_result.get('message'))
             
             logger.info(f"Order routing complete: {routing_result.decision.value}")
             self._notify_routing_callbacks(routing_result)
+            
+            # Log final routing performance
+            self._log_routing_performance(order)
+            
             return routing_result
             
         except Exception as e:
@@ -160,6 +264,15 @@ class OrderRouter:
                 original_order=order,
                 rejection_reason=error_msg
             )
+            
+            self.execution_logger.error_event(
+                error_type="routing_exception",
+                error_message=str(e),
+                message="Order routing failed with exception",
+                order_id=order.order_id,
+                symbol=order.symbol
+            )
+            
             self._notify_routing_callbacks(result)
             return result
     
@@ -357,10 +470,24 @@ class OrderRouter:
         """Handle order updates from broker"""
         logger.info(f"Order update: {order.order_id} -> {order.status.value}")
         
+        # Log structured order update
+        self.execution_logger.order_event(
+            event_type="status_update",
+            order_id=order.order_id,
+            symbol=order.symbol,
+            message=f"Order status updated to {order.status.value}",
+            status=order.status.value,
+            broker_order_id=order.broker_order_id
+        )
+        
         # Remove from pending if terminal state
         if order.status in [OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED]:
             self._pending_orders.pop(order.order_id, None)
             self._retry_attempts.pop(order.order_id, None)
+            
+            # Log order completion performance
+            if order.order_id in self._order_start_times:
+                self._log_order_completion_performance(order)
         
         # Notify callbacks
         self._notify_order_callbacks(order)
@@ -369,8 +496,95 @@ class OrderRouter:
         """Handle fill updates from broker"""
         logger.info(f"Fill received: {fill.symbol} {fill.quantity} @ ${fill.price}")
         
+        # Log structured fill event
+        self.execution_logger.fill_event(
+            fill_id=fill.fill_id,
+            order_id=fill.order_id,
+            symbol=fill.symbol,
+            quantity=fill.quantity,
+            price=fill.price,
+            message=f"Fill received: {fill.symbol} {fill.quantity} @ ${fill.price}",
+            commission=fill.commission,
+            slippage_bps=fill.slippage_bps,
+            exchange=fill.exchange,
+            strategy=fill.strategy
+        )
+        
+        # Log performance metrics if available
+        if fill.slippage_bps is not None:
+            self.execution_logger.performance_event(
+                metric_name="execution_slippage",
+                value=fill.slippage_bps,
+                unit="basis_points",
+                message=f"Execution slippage recorded for {fill.symbol}",
+                symbol=fill.symbol,
+                order_id=fill.order_id,
+                fill_id=fill.fill_id
+            )
+        
+        if fill.commission > 0:
+            self.execution_logger.performance_event(
+                metric_name="execution_commission",
+                value=fill.commission,
+                unit="dollars",
+                message=f"Commission recorded for {fill.symbol}",
+                symbol=fill.symbol,
+                order_id=fill.order_id,
+                fill_id=fill.fill_id
+            )
+        
         # Notify callbacks
         self._notify_fill_callbacks(fill)
+    
+    def _log_routing_decision(self, order: Order, result: RoutingResult, decision_type: str, **extra_context):
+        """Log routing decision with structured data"""
+        self.execution_logger.order_event(
+            event_type=f"routing.{decision_type}",
+            order_id=order.order_id,
+            symbol=order.symbol,
+            message=f"Order routing decision: {result.decision.value}",
+            decision=result.decision.value,
+            rejection_reason=result.rejection_reason,
+            risk_warnings=result.risk_warnings,
+            routing_notes=result.routing_notes,
+            **extra_context
+        )
+    
+    def _log_routing_performance(self, order: Order):
+        """Log overall routing performance"""
+        if order.order_id in self._order_start_times:
+            duration_ms = (time.perf_counter() - self._order_start_times[order.order_id]) * 1000
+            
+            self.execution_logger.performance_event(
+                metric_name="order_routing_duration",
+                value=duration_ms,
+                unit="milliseconds",
+                message=f"Order routing completed in {duration_ms:.1f}ms",
+                order_id=order.order_id,
+                symbol=order.symbol
+            )
+            
+            # Clean up tracking
+            self._order_start_times.pop(order.order_id, None)
+    
+    def _log_order_completion_performance(self, order: Order):
+        """Log order completion performance metrics"""
+        if order.order_id in self._order_start_times:
+            total_duration_ms = (time.perf_counter() - self._order_start_times[order.order_id]) * 1000
+            
+            self.execution_logger.performance_event(
+                metric_name="order_lifecycle_duration",
+                value=total_duration_ms,
+                unit="milliseconds",
+                message=f"Order lifecycle completed: {order.order_id}",
+                order_id=order.order_id,
+                symbol=order.symbol,
+                final_status=order.status.value,
+                broker_order_id=order.broker_order_id
+            )
+            
+            # Clean up tracking
+            self._order_start_times.pop(order.order_id, None)
     
     def add_order_callback(self, callback: Callable[[Order], None]):
         """Add order update callback"""
@@ -430,6 +644,42 @@ class OrderRouter:
         """Get list of pending orders"""
         return list(self._pending_orders.values())
     
+    async def _check_live_trading_authorization(self) -> bool:
+        """Check if live trading is authorized"""
+        import os
+        
+        # Check if we're in live mode
+        trading_mode = os.getenv('EXO_MODE', '').lower()
+        if trading_mode != 'live':
+            return True  # Non-live modes don't need authorization
+        
+        # If already authorized, return True
+        if self._live_trading_authorized:
+            return True
+        
+        # Request authorization from safety valve
+        try:
+            authorized = await self.safety_valve.authorize_live_trading("OrderRouter trading session")
+            if authorized:
+                self._live_trading_authorized = True
+                logger.info("Live trading authorized by safety valve")
+            else:
+                logger.warning("Live trading authorization denied by safety valve")
+            return authorized
+        except Exception as e:
+            logger.error(f"Live trading authorization failed: {e}")
+            return False
+    
+    def activate_emergency_abort(self, reason: str = "OrderRouter emergency stop"):
+        """Activate emergency abort via safety valve"""
+        self.safety_valve.activate_emergency_abort(reason)
+        self._live_trading_authorized = False  # Reset authorization
+        logger.critical(f"Emergency abort activated: {reason}")
+    
+    def get_safety_status(self) -> Dict[str, Any]:
+        """Get safety valve status"""
+        return self.safety_valve.get_safety_status()
+    
     def get_routing_stats(self) -> Dict[str, Any]:
         """Get routing statistics"""
         return {
@@ -438,7 +688,9 @@ class OrderRouter:
             'max_daily_orders': self.max_daily_orders,
             'retry_attempts': dict(self._retry_attempts),
             'broker_connected': self.broker.is_connected(),
-            'broker_status': self.broker.status.value if hasattr(self.broker, 'status') else 'unknown'
+            'broker_status': self.broker.status.value if hasattr(self.broker, 'status') else 'unknown',
+            'live_trading_authorized': self._live_trading_authorized,
+            'safety_valve': self.safety_valve.get_safety_status()
         }
     
     async def health_check(self) -> Dict[str, Any]:
@@ -449,6 +701,9 @@ class OrderRouter:
             
             # Check risk checker
             risk_status = self.risk_checker.check()
+            
+            # Check safety valve status
+            safety_status = self.safety_valve.get_safety_status()
             
             return {
                 'status': 'healthy',
@@ -461,8 +716,14 @@ class OrderRouter:
                     'status': risk_status['status'].value,
                     'violations': len(risk_status.get('violations', []))
                 },
+                'safety_valve': {
+                    'mode': safety_status['mode'],
+                    'emergency_abort': safety_status['emergency_abort'],
+                    'daily_value_remaining': safety_status['daily_value_remaining']
+                },
                 'pending_orders': len(self._pending_orders),
                 'daily_orders': self.daily_order_count,
+                'live_trading_authorized': self._live_trading_authorized,
                 'timestamp': datetime.now()
             }
             

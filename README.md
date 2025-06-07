@@ -27,7 +27,7 @@ A systematic trading system designed to provide consistent, risk-managed returns
                    ┌─────────┴──────────┐   ┌──────────┴──────────┐
                    │ Execution Engine   │   │  Reporting & UI     │
                    └────────────────────┘   └─────────────────────┘
-                             🚧                         🚧
+                             ✅                         🚧
 ```
 
 ## 📁 Project Structure
@@ -46,7 +46,7 @@ mech_exo/
 │   ├── scoring/          # ✅ Factor-based idea scoring
 │   ├── sizing/           # ✅ Position sizing
 │   ├── risk/             # ✅ Risk management
-│   ├── execution/        # 🚧 Trade execution
+│   ├── execution/        # ✅ Trade execution
 │   ├── reporting/        # 🚧 Dashboards & reports
 │   ├── backtest/         # 🚧 Backtesting engine
 │   └── utils/            # ✅ Utilities
@@ -173,12 +173,226 @@ risk_status = checker.get_risk_status_summary()
 - **Drawdown Limits**: Maximum portfolio drawdown (10%)
 - **Leverage Monitoring**: Real-time leverage calculation
 
-## 🚧 Next Phases (Upcoming)
+## ✅ Phase P4: Execution Engine (COMPLETED)
 
-### Phase P4: Execution Engine
-- **OrderRouter**: IB Gateway integration
-- **BrokerInterface**: Paper and live trading modes
-- **ExecutionTracker**: Fill tracking and slippage monitoring
+### Features Implemented:
+- **OrderRouter**: Advanced order routing with pre-trade risk checks and retry logic
+- **BrokerAdapter**: Pluggable broker interface supporting Interactive Brokers and StubBroker
+- **SafetyValve**: Live-mode safety controls with CLI confirmation and sentinel orders
+- **FillStore**: DuckDB-based execution database with timezone-aware storage
+- **Structured Logging**: JSON-formatted execution monitoring with performance metrics
+- **Integration Tests**: Comprehensive testing with 5/5 test scenarios passing
+
+### Trading Modes:
+The execution engine supports three distinct modes controlled by the `EXO_MODE` environment variable:
+
+#### **Stub Mode** (Default - Offline Testing)
+```bash
+export EXO_MODE=stub  # or leave unset
+python scripts/test_execution_integration.py
+```
+- **Purpose**: CI testing, development, and strategy verification
+- **Broker**: Enhanced StubBroker with realistic market simulation
+- **Features**: Instant fills, configurable slippage, commission simulation
+- **Database**: Local DuckDB file for fill persistence
+- **Safety**: No real money risk
+
+#### **Paper Mode** (Live Market, Simulated Orders)
+```bash
+export EXO_MODE=paper
+python -m mech_exo.execution.daily_executor
+```
+- **Purpose**: Live market testing with real prices but simulated execution
+- **Broker**: Interactive Brokers Paper Trading account
+- **Features**: Real market data, simulated fills, IB Gateway integration
+- **Database**: Production DuckDB with full audit trail
+- **Safety**: Paper trading account, no real money
+
+#### **Live Mode** (Production Trading)
+```bash
+export EXO_MODE=live
+python -m mech_exo.execution.daily_executor
+```
+- **Purpose**: Production trading with real money
+- **Broker**: Interactive Brokers Live account
+- **Features**: Real execution, full audit trail, safety valve protection
+- **Database**: Production DuckDB with comprehensive logging
+- **Safety**: CLI confirmation + sentinel orders + emergency abort
+
+### Key Components:
+
+#### **OrderRouter with Risk Integration**:
+```python
+from mech_exo.execution import OrderRouter
+from mech_exo.execution.models import create_market_order
+from mech_exo.risk import RiskChecker, Portfolio
+from tests.stubs.broker_stub import EnhancedStubBroker
+
+# Initialize components
+broker = EnhancedStubBroker({'simulate_fills': True})
+await broker.connect()
+
+portfolio = Portfolio(100000)
+risk_checker = RiskChecker(portfolio)
+
+router = OrderRouter(broker, risk_checker, {
+    'max_retries': 3,
+    'safety': {
+        'safety_mode': 'full_safety',  # CLI + sentinel orders
+        'max_daily_value': 50000.0
+    }
+})
+
+# Route order with full safety checks
+order = create_market_order("AAPL", 100, strategy="momentum")
+result = await router.route_order(order)
+
+if result.decision.value == 'APPROVE':
+    print(f"Order approved: {result.routing_notes}")
+else:
+    print(f"Order rejected: {result.rejection_reason}")
+```
+
+#### **SafetyValve for Live Trading**:
+```python
+from mech_exo.execution import SafetyValve
+
+# Initialize safety valve
+safety_valve = SafetyValve(broker, {
+    'safety_mode': 'full_safety',
+    'sentinel': {
+        'symbol': 'CAD',
+        'quantity': 100,
+        'max_price': 1.50
+    },
+    'max_daily_value': 100000.0
+})
+
+# Authorize live trading (CLI confirmation + sentinel order)
+authorized = await safety_valve.authorize_live_trading("Daily trading session")
+if authorized:
+    print("✅ Live trading authorized")
+else:
+    print("❌ Live trading blocked by safety valve")
+```
+
+#### **FillStore for Execution Tracking**:
+```python
+from mech_exo.execution import FillStore
+from datetime import date
+
+# Initialize fill store
+fill_store = FillStore()  # Uses default path: data/execution.db
+
+# Get today's fills
+today_fills = fill_store.get_fills(date_filter=date.today())
+
+# Get daily execution metrics
+daily_metrics = fill_store.get_daily_metrics(date.today())
+print(f"Today: {daily_metrics['fills']['total_fills']} fills")
+print(f"Volume: ${daily_metrics['fills']['total_value']:,.0f}")
+print(f"Avg slippage: {daily_metrics['fills']['avg_slippage_bps']:.1f} bps")
+
+# Get last fill timestamp for session recovery
+last_fill = fill_store.last_fill_ts()
+```
+
+### Environment Variables:
+
+| Variable | Values | Description |
+|----------|---------|-------------|
+| `EXO_MODE` | `stub`, `paper`, `live` | Trading mode (default: `stub`) |
+| `IB_GATEWAY_HOST` | IP address | IB Gateway host (default: `127.0.0.1`) |
+| `IB_GATEWAY_PORT` | Port number | IB Gateway port (paper: `7497`, live: `7496`) |
+| `EXECUTION_DB_PATH` | File path | DuckDB execution database path |
+| `PREFECT_LOGGING_LEVEL` | `DEBUG`, `INFO`, `WARNING` | Prefect log level |
+
+### Execution Database Schema:
+```sql
+-- Core fills table (timezone-aware)
+CREATE TABLE fills (
+    fill_id VARCHAR PRIMARY KEY,
+    order_id VARCHAR NOT NULL,
+    symbol VARCHAR NOT NULL,
+    quantity INTEGER NOT NULL,
+    price DECIMAL(10,4) NOT NULL,
+    fill_time TIMESTAMPTZ NOT NULL,  -- UTC timezone-aware
+    commission DECIMAL(8,4) DEFAULT 0,
+    exchange VARCHAR,
+    strategy VARCHAR,
+    -- Performance metrics
+    slippage_bps DECIMAL(8,4),
+    execution_venue VARCHAR,
+    liquidity_flag VARCHAR
+);
+
+-- Orders table for audit trail
+CREATE TABLE orders (
+    order_id VARCHAR PRIMARY KEY,
+    symbol VARCHAR NOT NULL,
+    quantity INTEGER NOT NULL,
+    order_type VARCHAR CHECK (order_type IN ('MKT', 'LMT', 'STP')),
+    limit_price DECIMAL(10,4),
+    stop_price DECIMAL(10,4),
+    status VARCHAR CHECK (status IN ('PENDING', 'SUBMITTED', 'FILLED', 'CANCELLED', 'REJECTED')),
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    strategy VARCHAR,
+    broker_order_id VARCHAR
+);
+```
+
+### Structured Logging Output:
+```json
+{
+  "timestamp": "2025-06-07T21:54:35.488428+00:00",
+  "level": "INFO",
+  "logger": "mech_exo.execution.order_router",
+  "message": "Fill received: AAPL 100 @ $175.06",
+  "extra": {
+    "event_type": "execution.fill",
+    "session_id": "session_20250607_175435_e39a93bf",
+    "trading_mode": "stub",
+    "component": "order_router",
+    "fill_id": "9455b669-bff8-4bc9-822e-c1e9dfc918cc",
+    "order_id": "5acb3e65-6dea-4de4-a879-268d45181c81",
+    "symbol": "AAPL",
+    "quantity": 100,
+    "price": 175.06,
+    "commission": 1.5,
+    "exchange": "STUB_EXCHANGE",
+    "strategy": "test_logging"
+  }
+}
+```
+
+### Performance Metrics:
+The execution engine tracks comprehensive performance metrics:
+- **Order routing latency**: Time from signal to broker submission
+- **Fill latency**: Time from order to fill
+- **Slippage tracking**: Basis points of price impact
+- **Commission costs**: Per-trade and daily totals
+- **Execution quality**: Fill rate, rejection rate, retry statistics
+
+### Error Handling & Recovery:
+- **Retry Logic**: Configurable retry on gateway errors and timeouts
+- **Circuit Breaker**: Emergency abort stops all trading immediately
+- **Session Recovery**: Resume trading from last known state
+- **Audit Trail**: Complete order and fill history for reconciliation
+
+### Integration Testing Results:
+```
+📊 Integration Test Summary: 5/5 tests passed
+✅ Verified Components:
+  - EnhancedStubBroker with realistic simulation
+  - OrderRouter with pre-trade risk checks  
+  - FillStore persistence and daily metrics
+  - Order rejection handling
+  - End-to-end trading session flow
+🚀 Ready for CI and production testing!
+```
+
+## 🚧 Next Phases (Upcoming)
 
 ### Phase P5: Reporting & Dashboard
 - **DailySnapshot**: Performance reporting
@@ -229,7 +443,30 @@ python scripts/test_p3_flow.py
 python -m mech_exo.cli risk status --nav 100000
 ```
 
-### 7. Explore with Jupyter
+### 7. Test Execution Engine
+```bash
+# Test with StubBroker (safe, offline)
+export EXO_MODE=stub
+python scripts/test_execution_integration.py
+
+# Test OrderRouter + SafetyValve integration
+python scripts/test_orderrouter_safety.py
+
+# Test structured logging
+python scripts/test_structured_logging.py
+```
+
+### 8. Paper Trading (30-Minute Setup)
+```bash
+# 1. Install IB Gateway (from Interactive Brokers)
+# 2. Configure paper trading account
+# 3. Start paper trading mode
+export EXO_MODE=paper
+export IB_GATEWAY_PORT=7497  # Paper trading port
+python -m mech_exo.execution.daily_executor
+```
+
+### 9. Explore with Jupyter
 ```bash
 jupyter notebook notebooks/scoring_exploration.ipynb
 ```
@@ -245,6 +482,14 @@ python -m pytest tests/ -v
 # Run specific test modules
 python -m pytest tests/test_datasource.py -v
 python -m pytest tests/test_scoring.py -v
+
+# Test execution engine integration
+python scripts/test_execution_integration.py
+python scripts/test_orderrouter_safety.py
+python scripts/test_structured_logging.py
+
+# Run execution-specific pytest tests
+python -m pytest tests/integration/test_execution.py -v -m execution
 ```
 
 ## 📊 Example Output
@@ -308,8 +553,8 @@ Fully configurable factor weights and directions for scoring customization.
 
 ---
 
-**Status**: Phase P1, P2 & P3 Complete ✅  
-**Next**: Execution Engine (P4) 🚧  
+**Status**: Phase P1, P2, P3 & P4 Complete ✅  
+**Next**: Reporting & Dashboard (P5) 🚧  
 **Timeline**: ~2 weeks per phase at current pace
 
 Built with Python 3.11+ | DuckDB | Prefect | Interactive Brokers API

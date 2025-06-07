@@ -41,7 +41,7 @@ class StubBrokerConfig:
     
     # Account simulation
     initial_nav: float = 100000.0
-    initial_cash: float = 50000.0
+    initial_cash: Optional[float] = None  # Defaults to initial_nav if not specified
     margin_multiplier: float = 2.0
     
     # Latency simulation
@@ -85,6 +85,7 @@ class EnhancedStubBroker(BrokerAdapter):
             volatility=config.get('volatility', 0.02),
             simulate_slippage=config.get('simulate_slippage', True),
             initial_nav=config.get('initial_nav', 100000.0),
+            initial_cash=config.get('initial_cash'),  # None if not specified
             write_to_fill_store=config.get('write_to_fill_store', True),
             fill_store_path=config.get('fill_store_path')
         )
@@ -95,7 +96,8 @@ class EnhancedStubBroker(BrokerAdapter):
         # Account state
         self.account_id = "STUB_ACCOUNT_" + str(uuid.uuid4())[:8]
         self.current_nav = self.stub_config.initial_nav
-        self.cash_balance = self.stub_config.initial_cash
+        # Set cash balance to initial_nav if not specified
+        self.cash_balance = self.stub_config.initial_cash if self.stub_config.initial_cash is not None else self.stub_config.initial_nav
         self.positions: Dict[str, Dict[str, Any]] = {}
         
         # Market data simulation

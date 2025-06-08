@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mech-exo"
-version = "0.1.0"
+version = "0.4.0"
 description = "Mechanical Exoskeleton - Systematic Trading System"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
@@ -45,10 +45,12 @@ line-length = 88
 target-version = ['py311']
 
 [tool.ruff]
-select = ["E", "F", "W", "C90", "I", "N", "UP", "B", "A", "C4", "DTZ", "T10", "EM", "EXE", "ISC", "ICN", "G", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RUF"]
-ignore = ["E501", "B008", "B904"]
 line-length = 88
 target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "C90", "I", "N", "UP", "B", "A", "C4", "DTZ", "T10", "EM", "EXE", "ISC", "ICN", "G", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RUF"]
+ignore = ["E501", "B008", "B904", "G004", "TRY400", "TRY300", "DTZ005"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

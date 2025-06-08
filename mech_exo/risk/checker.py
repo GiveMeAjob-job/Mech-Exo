@@ -26,7 +26,7 @@ class Position:
     
     def __init__(self, symbol: str, shares: int, entry_price: float, 
                  current_price: float, entry_date: datetime,
-                 sector: Optional[str] = None):
+                 sector: Optional[str] = None) -> None:
         self.symbol = symbol
         self.shares = shares  # Positive for long, negative for short
         self.entry_price = entry_price
@@ -68,12 +68,12 @@ class Position:
 class Portfolio:
     """Represents current portfolio state"""
     
-    def __init__(self, nav: float):
+    def __init__(self, nav: float) -> None:
         self.nav = nav
         self.positions: Dict[str, Position] = {}
         self.cash = nav  # Start with all cash
         
-    def add_position(self, position: Position):
+    def add_position(self, position: Position) -> None:
         """Add or update position"""
         if position.symbol in self.positions:
             # Update existing position (could be adding to or reducing)
@@ -161,7 +161,7 @@ class Portfolio:
 class RiskChecker(BaseRiskChecker):
     """Main risk checking engine"""
     
-    def __init__(self, portfolio: Portfolio, risk_config_path: str = "config/risk_limits.yml"):
+    def __init__(self, portfolio: Portfolio, risk_config_path: str = "config/risk_limits.yml") -> None:
         # Load risk configuration
         config_manager = ConfigManager()
         risk_config = config_manager.load_config("risk_limits")
@@ -187,7 +187,12 @@ class RiskChecker(BaseRiskChecker):
         logger.info(f"RiskChecker initialized for portfolio NAV=${portfolio.nav:,.0f}")
     
     def check(self, **kwargs) -> Dict[str, Any]:
-        """Perform comprehensive risk check"""
+        """
+        Perform comprehensive risk check across all risk categories.
+        
+        Returns:
+            Dict containing risk status, violations, warnings, and detailed metrics
+        """
         try:
             risk_report = {
                 "timestamp": datetime.now(),
@@ -243,7 +248,12 @@ class RiskChecker(BaseRiskChecker):
             }
     
     def _check_position_limits(self) -> Dict[str, Any]:
-        """Check individual position limits"""
+        """
+        Check individual position size limits and constraints.
+        
+        Returns:
+            Dict with status, violations, warnings, and position metrics
+        """
         violations = []
         warnings = []
         
@@ -290,7 +300,12 @@ class RiskChecker(BaseRiskChecker):
         }
     
     def _check_portfolio_limits(self) -> Dict[str, Any]:
-        """Check portfolio-level limits"""
+        """
+        Check portfolio-level exposure and leverage limits.
+        
+        Returns:
+            Dict with status, violations, warnings, and portfolio metrics
+        """
         violations = []
         warnings = []
         
@@ -549,7 +564,18 @@ class RiskChecker(BaseRiskChecker):
     
     def check_new_position(self, symbol: str, shares: int, price: float, 
                           sector: Optional[str] = None) -> Dict[str, Any]:
-        """Check if new position would violate risk limits"""
+        """
+        Check if a new position would violate risk limits.
+        
+        Args:
+            symbol: Symbol for the new position
+            shares: Number of shares (positive for long, negative for short)
+            price: Entry price for the position
+            sector: Sector classification (optional)
+            
+        Returns:
+            Dict containing pre-trade analysis and risk assessment
+        """
         # Create temporary position
         temp_position = Position(
             symbol=symbol,
@@ -605,7 +631,7 @@ class RiskChecker(BaseRiskChecker):
         except Exception as e:
             return f"❌ Risk check failed: {e}"
     
-    def close(self):
+    def close(self) -> None:
         """Close database connections"""
         if hasattr(self, 'storage'):
             self.storage.close()

@@ -1,0 +1,4 @@
+symbol,quantity,avg_price,market_value,total_fees,last_trade_date,trades_count
+GOOGL,200,140.05,28010,5,2025-06-07,4
+CAD,100,1.5,150,1.5,2025-06-07,1
+AAPL,400,175.06,70025,6,2025-06-07,4

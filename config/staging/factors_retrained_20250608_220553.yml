@@ -1,0 +1,20 @@
+metadata:
+  version: '20250608_220553'
+  created_at: '2025-06-08T22:05:53.876433'
+  retrain_trigger: drift_breach
+  validation_sharpe: 0.35
+  segments_passed: 2
+  segments_total: 2
+  deployment_mode: dry_run
+factors:
+  fundamental:
+    pe_ratio:
+      weight: 18
+      direction: lower_better
+    return_on_equity:
+      weight: 22
+      direction: higher_better
+  technical:
+    momentum_12_1:
+      weight: 12
+      direction: higher_better

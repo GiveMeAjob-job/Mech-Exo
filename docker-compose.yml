@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  db:
+    image: duckdb/duckdb:latest
+    volumes:
+      - ./data:/data
+    environment:
+      - DUCKDB_DATABASE=/data/mech_exo.duckdb
+    healthcheck:
+      test: ["CMD", "test", "-f", "/data/mech_exo.duckdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dash:
+    build: .
+    ports:
+      - "8050:8050"
+    env_file: 
+      - .env
+    environment:
+      - DASH_USER=${DASH_USER:-admin}
+      - DASH_PASS=${DASH_PASS:-changeme}
+      - PYTHONPATH=/app
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8050/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+networks:
+  default:
+    name: mech-exo-network

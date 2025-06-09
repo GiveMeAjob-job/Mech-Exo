@@ -1,0 +1,125 @@
+name: Dashboard Health Check
+
+on:
+  push:
+    branches: [ main, develop, release/* ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    services:
+      db:
+        image: duckdb/duckdb:latest
+        options: >-
+          --health-cmd "test -f /data/mech_exo.duckdb || echo 'DB not ready'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        volumes:
+          - /tmp/data:/data
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Create required directories
+      run: |
+        mkdir -p data/processed data/raw config
+        touch data/mech_exo.duckdb
+
+    - name: Create test environment file
+      run: |
+        cat > .env << EOF
+        DASH_USER=testuser
+        DASH_PASS=testpass
+        DASH_PORT=8050
+        DATABASE_PATH=data/mech_exo.duckdb
+        EOF
+
+    - name: Build dashboard container
+      run: |
+        docker build -t mech-exo-dash .
+
+    - name: Start dashboard container
+      run: |
+        docker run -d --name mech-exo-dash \
+          -p 8050:8050 \
+          --env-file .env \
+          -v $(pwd)/data:/app/data \
+          mech-exo-dash
+
+    - name: Wait for dashboard to be ready
+      run: |
+        echo "Waiting for dashboard to start..."
+        for i in {1..30}; do
+          if curl -f -s http://localhost:8050/healthz > /dev/null; then
+            echo "Dashboard is ready!"
+            break
+          fi
+          echo "Attempt $i/30: Dashboard not ready yet, waiting..."
+          sleep 2
+        done
+
+    - name: Test dashboard health endpoint
+      run: |
+        echo "Testing health endpoint..."
+        response=$(curl -s http://localhost:8050/healthz)
+        echo "Health response: $response"
+        
+        # Test basic health check
+        if [[ "$response" != "OK" ]]; then
+          echo "❌ Health check failed: expected 'OK', got '$response'"
+          exit 1
+        fi
+        
+        echo "✅ Basic health check passed"
+
+    - name: Test JSON health endpoint
+      run: |
+        echo "Testing JSON health endpoint..."
+        json_response=$(curl -s -H "Accept: application/json" http://localhost:8050/healthz)
+        echo "JSON response: $json_response"
+        
+        # Check if response contains expected JSON fields
+        if echo "$json_response" | grep -q '"status"'; then
+          echo "✅ JSON health check passed"
+        else
+          echo "❌ JSON health check failed: no status field found"
+          exit 1
+        fi
+
+    - name: Test dashboard accessibility
+      run: |
+        echo "Testing dashboard homepage..."
+        http_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8050/)
+        
+        if [[ "$http_code" == "200" ]]; then
+          echo "✅ Dashboard homepage accessible"
+        else
+          echo "❌ Dashboard homepage failed with HTTP $http_code"
+          exit 1
+        fi
+
+    - name: Show container logs on failure
+      if: failure()
+      run: |
+        echo "=== Dashboard Container Logs ==="
+        docker logs mech-exo-dash || true
+        echo "=== Container Status ==="
+        docker ps -a || true
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker stop mech-exo-dash || true
+        docker rm mech-exo-dash || true
+        docker rmi mech-exo-dash || true

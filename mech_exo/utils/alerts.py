@@ -359,6 +359,225 @@ Message:
         return color_map.get(level, "#757575")
 
 
+class TelegramAlerter:
+    """
+    Telegram alerting functionality for trading notifications
+    
+    Provides Markdown-formatted notifications with proper character escaping
+    for strategy retraining and other critical alerts.
+    """
+    
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize Telegram alerter
+        
+        Args:
+            config: Configuration dictionary with bot_token and chat_id
+        """
+        self.bot_token = config.get('bot_token')
+        self.chat_id = config.get('chat_id')
+        self.username = config.get('username', 'Mech-Exo Bot')
+        
+        if not self.bot_token:
+            raise ValueError("bot_token must be provided for Telegram alerts")
+        if not self.chat_id:
+            raise ValueError("chat_id must be provided for Telegram alerts")
+        
+        self.api_url = f"https://api.telegram.org/bot{self.bot_token}"
+    
+    def escape_markdown(self, text: str) -> str:
+        """
+        Escape Markdown special characters for Telegram
+        
+        Args:
+            text: Text to escape
+            
+        Returns:
+            Escaped text safe for Telegram Markdown
+        """
+        # Characters that need escaping in Telegram Markdown
+        escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        
+        escaped_text = text
+        for char in escape_chars:
+            escaped_text = escaped_text.replace(char, f'\\{char}')
+        
+        return escaped_text
+    
+    def send_message(self, message: str, parse_mode: str = "MarkdownV2") -> bool:
+        """
+        Send message to Telegram
+        
+        Args:
+            message: Message to send
+            parse_mode: Parse mode (MarkdownV2, Markdown, HTML, or None)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            import os
+            
+            # Check for dry-run mode
+            if os.getenv('TELEGRAM_DRY_RUN', 'false').lower() == 'true':
+                logger.info("TELEGRAM_DRY_RUN=true - logging message instead of sending")
+                logger.info(f"Dry-run Telegram message:\n{message}")
+                return True
+            
+            import requests
+            
+            payload = {
+                "chat_id": self.chat_id,
+                "text": message
+            }
+            
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
+            
+            response = requests.post(
+                f"{self.api_url}/sendMessage",
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info("Telegram message sent successfully")
+                return True
+            else:
+                logger.error(f"Telegram message failed: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to send Telegram message: {e}")
+            return False
+    
+    def send_alert(self, alert: Alert) -> bool:
+        """Send alert via Telegram"""
+        try:
+            # Convert alert to simple format for Telegram
+            emoji = self._get_emoji_for_level(alert.level)
+            
+            message = f"{emoji} *{self.escape_markdown(alert.title)}*\n\n"
+            message += f"{self.escape_markdown(alert.message)}\n\n"
+            message += f"*Level:* {alert.level.value.upper()}\n"
+            message += f"*Time:* {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            return self.send_message(message)
+            
+        except Exception as e:
+            logger.error(f"Failed to send Telegram alert: {e}")
+            return False
+    
+    def send_retrain_success(self, validation_results: Dict[str, Any], 
+                           version: str, factors_file: str) -> bool:
+        """
+        Send successful retrain notification
+        
+        Args:
+            validation_results: Validation results from walk-forward analysis
+            version: Version timestamp
+            factors_file: Path to new factors file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            sharpe = validation_results.get('out_of_sample_sharpe', 0)
+            max_dd = validation_results.get('max_drawdown', 0)
+            segments_passed = validation_results.get('segments_passed', 0)
+            segments_total = validation_results.get('segments_total', 0)
+            
+            # Create success message with proper Markdown escaping
+            message = f"""⚙️ *Retrain Completed Successfully*
+
+📈 **Sharpe Ratio**: {sharpe:.2f}
+📉 **Max Drawdown**: {max_dd:.1%}
+✅ **Validation**: {segments_passed}/{segments_total} segments passed
+🔧 **Version**: `{self.escape_markdown(version)}`
+📁 **Weights File**: `{self.escape_markdown(factors_file)}`
+
+🚀 *New factors deployed and ready for trading*"""
+            
+            return self.send_message(message)
+            
+        except Exception as e:
+            logger.error(f"Failed to send retrain success notification: {e}")
+            return False
+    
+    def send_retrain_failure(self, failure_reason: str, version: str) -> bool:
+        """
+        Send failed retrain notification
+        
+        Args:
+            failure_reason: Reason for failure
+            version: Version timestamp
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Create failure message with proper Markdown escaping
+            message = f"""❌ *Retrain Failed*
+
+🚫 **Reason**: {self.escape_markdown(failure_reason)}
+🔧 **Version**: `{self.escape_markdown(version)}`
+📅 **Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+⚠️ *Manual review required \\- existing factors remain active*"""
+            
+            return self.send_message(message)
+            
+        except Exception as e:
+            logger.error(f"Failed to send retrain failure notification: {e}")
+            return False
+    
+    def send_validation_failure(self, validation_results: Dict[str, Any], 
+                              deployment_reason: str, version: str) -> bool:
+        """
+        Send validation failure notification
+        
+        Args:
+            validation_results: Validation results from walk-forward analysis
+            deployment_reason: Reason deployment was skipped
+            version: Version timestamp
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            sharpe = validation_results.get('out_of_sample_sharpe', 0)
+            max_dd = validation_results.get('max_drawdown', 0)
+            segments_passed = validation_results.get('segments_passed', 0)
+            segments_total = validation_results.get('segments_total', 0)
+            
+            # Create validation failure message
+            message = f"""⚠️ *Retrain Validation Failed*
+
+📈 **Sharpe Ratio**: {sharpe:.2f}
+📉 **Max Drawdown**: {max_dd:.1%}
+❌ **Validation**: {segments_passed}/{segments_total} segments passed
+🚫 **Reason**: {self.escape_markdown(deployment_reason)}
+🔧 **Version**: `{self.escape_markdown(version)}`
+
+🔄 *Factors not deployed \\- existing configuration remains active*"""
+            
+            return self.send_message(message)
+            
+        except Exception as e:
+            logger.error(f"Failed to send validation failure notification: {e}")
+            return False
+    
+    def _get_emoji_for_level(self, level: AlertLevel) -> str:
+        """Get emoji for alert level"""
+        emoji_map = {
+            AlertLevel.INFO: "ℹ️",
+            AlertLevel.WARNING: "⚠️",
+            AlertLevel.ERROR: "❌",
+            AlertLevel.CRITICAL: "🚨"
+        }
+        return emoji_map.get(level, "❓")
+
+
 class AlertManager:
     """Main alert manager coordinating multiple channels"""
     
@@ -395,6 +614,15 @@ class AlertManager:
                 logger.info("Email alerter initialized")
             except Exception as e:
                 logger.warning(f"Failed to initialize Email alerter: {e}")
+        
+        # Setup Telegram if configured
+        telegram_config = self.config.get('telegram', {})
+        if telegram_config.get('enabled', False):
+            try:
+                self.alerters['telegram'] = TelegramAlerter(telegram_config)
+                logger.info("Telegram alerter initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Telegram alerter: {e}")
         
         # Alert filtering
         self.min_level = AlertLevel(self.config.get('min_level', 'info'))

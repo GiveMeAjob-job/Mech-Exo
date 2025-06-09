@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backtest Tear Sheet - {{ strategy_name }}</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        .header .period {
+            margin-top: 10px;
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        .content {
+            padding: 30px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .metric-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+        }
+        .metric-card h3 {
+            margin: 0 0 10px 0;
+            color: #495057;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .metric-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #212529;
+        }
+        .metric-value.positive { color: #28a745; }
+        .metric-value.negative { color: #dc3545; }
+        .metric-value.neutral { color: #6c757d; }
+        .chart-container {
+            margin-bottom: 40px;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .chart-title {
+            font-size: 1.4em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #495057;
+        }
+        .chart {
+            width: 100%;
+            height: 400px;
+        }
+        .performance-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .performance-table th,
+        .performance-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .performance-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+        .performance-table tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            background-color: #f8f9fa;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-good { background-color: #28a745; }
+        .status-warning { background-color: #ffc107; }
+        .status-poor { background-color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>📊 Backtest Tear Sheet</h1>
+            <div class="period">{{ start_date }} to {{ end_date }}</div>
+            {% if strategy_name %}
+            <div class="period">Strategy: {{ strategy_name }}</div>
+            {% endif %}
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            
+            <!-- Key Metrics Grid -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h3>Total Return (Net)</h3>
+                    <div class="metric-value {{ 'positive' if metrics.total_return_net > 0 else 'negative' }}">
+                        {{ "%.2f%%" | format(metrics.total_return_net * 100) }}
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <h3>CAGR (Net)</h3>
+                    <div class="metric-value {{ 'positive' if metrics.cagr_net > 0 else 'negative' }}">
+                        {{ "%.2f%%" | format(metrics.cagr_net * 100) }}
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <h3>Sharpe Ratio</h3>
+                    <div class="metric-value {{ 'positive' if metrics.sharpe_net > 1 else ('neutral' if metrics.sharpe_net > 0 else 'negative') }}">
+                        {{ "%.2f" | format(metrics.sharpe_net) }}
+                        <span class="status-indicator {{ 'status-good' if metrics.sharpe_net > 1 else ('status-warning' if metrics.sharpe_net > 0 else 'status-poor') }}"></span>
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <h3>Max Drawdown</h3>
+                    <div class="metric-value negative">
+                        {{ "%.2f%%" | format(metrics.max_drawdown * 100) }}
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <h3>Volatility</h3>
+                    <div class="metric-value neutral">
+                        {{ "%.2f%%" | format(metrics.volatility * 100) }}
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <h3>Total Trades</h3>
+                    <div class="metric-value neutral">
+                        {{ metrics.total_trades }}
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <h3>Win Rate</h3>
+                    <div class="metric-value {{ 'positive' if metrics.win_rate > 0.5 else 'negative' }}">
+                        {{ "%.1f%%" | format(metrics.win_rate * 100) }}
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <h3>Cost Drag (Annual)</h3>
+                    <div class="metric-value negative">
+                        {{ "%.2f%%" | format(metrics.cost_drag_annual * 100) }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Equity Curve Chart -->
+            <div class="chart-container">
+                <div class="chart-title">📈 Equity Curve</div>
+                <div id="equity-chart" class="chart"></div>
+            </div>
+
+            <!-- Monthly Returns Heatmap -->
+            <div class="chart-container">
+                <div class="chart-title">🔥 Monthly Returns Heatmap</div>
+                <div id="monthly-heatmap" class="chart"></div>
+            </div>
+
+            <!-- Annual Returns Bar Chart -->
+            <div class="chart-container">
+                <div class="chart-title">📊 Annual Returns</div>
+                <div id="annual-returns" class="chart"></div>
+            </div>
+
+            <!-- Performance Metrics Table -->
+            <div class="chart-container">
+                <div class="chart-title">📋 Detailed Performance Metrics</div>
+                <table class="performance-table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Net</th>
+                            <th>Gross</th>
+                            <th>Benchmark</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Total Return</td>
+                            <td>{{ "%.2f%%" | format(metrics.total_return_net * 100) }}</td>
+                            <td>{{ "%.2f%%" | format(metrics.total_return_gross * 100) }}</td>
+                            <td>-</td>
+                        </tr>
+                        <tr>
+                            <td>CAGR</td>
+                            <td>{{ "%.2f%%" | format(metrics.cagr_net * 100) }}</td>
+                            <td>{{ "%.2f%%" | format(metrics.cagr_gross * 100) }}</td>
+                            <td>-</td>
+                        </tr>
+                        <tr>
+                            <td>Sharpe Ratio</td>
+                            <td>{{ "%.2f" | format(metrics.sharpe_net) }}</td>
+                            <td>{{ "%.2f" | format(metrics.sharpe_gross) }}</td>
+                            <td>-</td>
+                        </tr>
+                        <tr>
+                            <td>Sortino Ratio</td>
+                            <td>{{ "%.2f" | format(metrics.sortino) }}</td>
+                            <td>-</td>
+                            <td>-</td>
+                        </tr>
+                        <tr>
+                            <td>Calmar Ratio</td>
+                            <td>{{ "%.2f" | format(metrics.calmar_ratio) }}</td>
+                            <td>-</td>
+                            <td>-</td>
+                        </tr>
+                        <tr>
+                            <td>Max Drawdown</td>
+                            <td>{{ "%.2f%%" | format(metrics.max_drawdown * 100) }}</td>
+                            <td>-</td>
+                            <td>-</td>
+                        </tr>
+                        <tr>
+                            <td>Volatility</td>
+                            <td>{{ "%.2f%%" | format(metrics.volatility * 100) }}</td>
+                            <td>-</td>
+                            <td>-</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Trading Activity Summary -->
+            <div class="chart-container">
+                <div class="chart-title">🔄 Trading Activity</div>
+                <table class="performance-table">
+                    <tbody>
+                        <tr>
+                            <td><strong>Total Trades</strong></td>
+                            <td>{{ metrics.total_trades }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Win Rate</strong></td>
+                            <td>{{ "%.1f%%" | format(metrics.win_rate * 100) }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Profit Factor</strong></td>
+                            <td>{{ "%.2f" | format(metrics.profit_factor) }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Avg Trade Duration</strong></td>
+                            <td>{{ "%.1f days" | format(metrics.avg_trade_duration) }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Total Fees</strong></td>
+                            <td>${{ "{:,.2f}".format(metrics.total_fees) }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Avg Fee per Trade</strong></td>
+                            <td>${{ "{:,.2f}".format(metrics.avg_fee_per_trade) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            Generated by Mech-Exo Backtesting Engine | {{ generation_time }}
+        </div>
+    </div>
+
+    <!-- Chart Scripts -->
+    <script>
+        // Equity Curve Chart
+        var equityData = {{ equity_curve_data | tojson }};
+        
+        var equityTrace = {
+            x: equityData.dates,
+            y: equityData.values,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Portfolio Value',
+            line: {
+                color: '#667eea',
+                width: 2
+            }
+        };
+
+        var equityLayout = {
+            title: '',
+            xaxis: { title: 'Date' },
+            yaxis: { title: 'Portfolio Value ($)' },
+            showlegend: false,
+            margin: { l: 60, r: 30, t: 30, b: 60 },
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            paper_bgcolor: 'rgba(0,0,0,0)'
+        };
+
+        Plotly.newPlot('equity-chart', [equityTrace], equityLayout, {responsive: true});
+
+        // Monthly Returns Heatmap
+        var monthlyData = {{ monthly_returns_data | tojson }};
+        
+        var heatmapTrace = {
+            z: monthlyData.returns,
+            x: monthlyData.months,
+            y: monthlyData.years,
+            type: 'heatmap',
+            colorscale: 'RdYlGn',
+            reversescale: false,
+            showscale: true,
+            hoverongaps: false,
+            colorbar: {
+                title: 'Monthly Return (%)'
+            }
+        };
+
+        var heatmapLayout = {
+            title: '',
+            xaxis: { title: 'Month' },
+            yaxis: { title: 'Year' },
+            margin: { l: 60, r: 80, t: 30, b: 60 },
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            paper_bgcolor: 'rgba(0,0,0,0)'
+        };
+
+        Plotly.newPlot('monthly-heatmap', [heatmapTrace], heatmapLayout, {responsive: true});
+
+        // Annual Returns Bar Chart
+        var annualData = {{ annual_returns_data | tojson }};
+        
+        var barTrace = {
+            x: annualData.years,
+            y: annualData.returns,
+            type: 'bar',
+            name: 'Annual Return',
+            marker: {
+                color: annualData.returns.map(r => r >= 0 ? '#28a745' : '#dc3545')
+            }
+        };
+
+        var barLayout = {
+            title: '',
+            xaxis: { title: 'Year' },
+            yaxis: { title: 'Annual Return (%)' },
+            showlegend: false,
+            margin: { l: 60, r: 30, t: 30, b: 60 },
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            paper_bgcolor: 'rgba(0,0,0,0)'
+        };
+
+        Plotly.newPlot('annual-returns', [barTrace], barLayout, {responsive: true});
+    </script>
+</body>
+</html>

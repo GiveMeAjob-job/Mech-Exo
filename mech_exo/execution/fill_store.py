@@ -352,6 +352,73 @@ class FillStore:
             logger.error(f"Failed to retrieve fills: {e}")
             return []
 
+    def get_fills_df(self, start_date=None, end_date=None, symbol=None, strategy=None):
+        """
+        Retrieve fills as a pandas DataFrame for analysis.
+        
+        Args:
+            start_date: Filter fills from this date onwards (optional)
+            end_date: Filter fills up to this date (optional) 
+            symbol: Filter by specific symbol (optional)
+            strategy: Filter by strategy name (optional)
+            
+        Returns:
+            pd.DataFrame: DataFrame with fills data
+        """
+        try:
+            import pandas as pd
+            
+            query = "SELECT * FROM fills WHERE 1=1"
+            params = []
+
+            if symbol:
+                query += " AND symbol = ?"
+                params.append(symbol)
+
+            if start_date:
+                # Handle both date and datetime objects
+                if hasattr(start_date, 'date'):
+                    start_date = start_date.date()
+                query += " AND DATE(filled_at) >= ?"
+                params.append(start_date)
+
+            if end_date:
+                # Handle both date and datetime objects  
+                if hasattr(end_date, 'date'):
+                    end_date = end_date.date()
+                query += " AND DATE(filled_at) <= ?"
+                params.append(end_date)
+
+            if strategy:
+                query += " AND strategy = ?"
+                params.append(strategy)
+
+            query += " ORDER BY filled_at ASC"  # Chronological order for NAV calculation
+
+            # Execute query and get DataFrame
+            df = self.conn.execute(query, params).df()
+            
+            if not df.empty:
+                # Convert filled_at to datetime with timezone awareness
+                df['filled_at'] = pd.to_datetime(df['filled_at'])
+                if df['filled_at'].dt.tz is None:
+                    df['filled_at'] = df['filled_at'].dt.tz_localize('UTC')
+                    
+                # Fill missing numeric values
+                numeric_cols = ['commission', 'fees', 'sec_fee', 'slippage_bps']
+                for col in numeric_cols:
+                    if col in df.columns:
+                        df[col] = df[col].fillna(0.0)
+                        
+                logger.debug(f"Retrieved {len(df)} fills as DataFrame")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve fills DataFrame: {e}")
+            import pandas as pd
+            return pd.DataFrame()  # Return empty DataFrame on error
+
     def get_execution_summary(self, start_date=None, end_date=None):
         """
         Get comprehensive execution summary statistics for a date range.

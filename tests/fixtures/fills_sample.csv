@@ -1,0 +1,11 @@
+fill_id,symbol,quantity,price,commission,filled_at,side,strategy_id,order_id,execution_venue,slippage_bps,routing_latency_ms
+1,AAPL,100,150.25,1.50,2025-05-01 09:30:00,BUY,momentum_1,ord_001,NASDAQ,2.5,45
+2,GOOGL,50,2750.00,2.75,2025-05-01 10:15:00,BUY,momentum_1,ord_002,NASDAQ,3.2,52
+3,MSFT,75,320.50,1.20,2025-05-01 11:00:00,BUY,momentum_1,ord_003,NASDAQ,1.8,38
+4,AAPL,-25,152.00,0.75,2025-05-02 14:30:00,SELL,momentum_1,ord_004,NASDAQ,1.5,41
+5,TSLA,30,205.75,1.00,2025-05-02 15:45:00,BUY,momentum_1,ord_005,NASDAQ,4.1,67
+6,SPY,200,418.25,2.00,2025-05-03 09:30:00,BUY,etf_rotation,ord_006,ARCA,0.8,29
+7,QQQ,150,345.80,1.80,2025-05-03 10:00:00,BUY,etf_rotation,ord_007,NASDAQ,1.2,33
+8,AAPL,-75,151.75,1.13,2025-05-03 13:15:00,SELL,momentum_1,ord_008,NASDAQ,2.1,48
+9,GOOGL,-25,2785.50,1.38,2025-05-04 11:30:00,SELL,momentum_1,ord_009,NASDAQ,2.8,55
+10,VTI,100,225.40,1.50,2025-05-04 14:00:00,BUY,diversified,ord_010,ARCA,0.5,25

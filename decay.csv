@@ -1,0 +1,4 @@
+factor,half_life,latest_ic,ic_observations,ic_mean,ic_std,ic_trend,data_points,calculation_date,status
+momentum_12_1,,,0,,,,30,2025-06-09 08:45:24.004641,insufficient_data
+pe_ratio,,,0,,,,30,2025-06-09 08:45:24.005313,insufficient_data
+return_on_equity,,,0,,,,30,2025-06-09 08:45:24.005943,insufficient_data

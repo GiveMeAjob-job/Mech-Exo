@@ -1,0 +1,29 @@
+# Alpha Decay Monitoring Configuration
+
+# Alert thresholds (tuned after initial testing)
+alert_half_life: 8  # Alert when factor half-life drops below 8 days (raised from 7 to reduce false positives)
+warning_half_life: 15  # Warning when half-life drops below 15 days
+
+# Calculation parameters
+lookback_days: 730  # Days of historical data for analysis (2 years)
+min_ic_observations: 60  # Minimum IC observations required
+rolling_window: 252  # Rolling window for IC calculation (1 year)
+
+# Dashboard display settings
+color_thresholds:
+  green_threshold: 30  # Half-life > 30 days = green
+  yellow_threshold: 10  # Half-life 10-30 days = yellow
+  # Half-life < 10 days = red
+
+# Telegram notification settings
+batch_alerts: true  # Batch multiple factors into one message
+max_factors_per_alert: 10  # Maximum factors to include in one alert
+
+# Flow scheduling
+schedule_cron: "0 9 * * *"  # Daily at 09:00 UTC (04:00 EST)
+flow_retries: 2
+retry_delay_seconds: 30
+
+# Data quality filters
+min_data_points: 60  # Minimum data points for factor analysis
+max_half_life_cap: 90  # Cap half-life calculations at 90 days

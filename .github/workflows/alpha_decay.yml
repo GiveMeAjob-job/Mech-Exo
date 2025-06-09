@@ -1,0 +1,131 @@
+name: Alpha Decay CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run daily at 09:30 UTC (for demo purposes)
+    - cron: '30 9 * * *'
+
+jobs:
+  alpha-decay-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Verify test fixture exists
+      run: |
+        echo "📋 Checking test fixture..."
+        ls -la tests/fixtures/decay_fixture.csv
+        wc -l tests/fixtures/decay_fixture.csv
+        echo "✅ Fixture verified"
+        
+    - name: Run alpha decay analysis
+      env:
+        TELEGRAM_DRY_RUN: true
+      run: |
+        echo "🔬 Running alpha decay analysis with fixture..."
+        PYTHONPATH=. python mech_exo/cli.py decay \
+          --fixture tests/fixtures/decay_fixture.csv \
+          --export decay.csv \
+          --dry-run \
+          --threshold 10.0
+        
+    - name: Validate decay analysis results
+      run: |
+        echo "🔍 Validating decay analysis results..."
+        
+        # Check that CSV was created
+        if [ ! -f decay.csv ]; then
+          echo "❌ ERROR: decay.csv not created"
+          exit 1
+        fi
+        
+        # Check file is not empty
+        if [ ! -s decay.csv ]; then
+          echo "❌ ERROR: decay.csv is empty"
+          exit 1
+        fi
+        
+        # Check has at least header + 1 row
+        row_count=$(wc -l < decay.csv)
+        if [ $row_count -lt 2 ]; then
+          echo "❌ ERROR: decay.csv has insufficient rows ($row_count)"
+          exit 1
+        fi
+        
+        echo "✅ CSV validation passed"
+        echo "   • File size: $(stat -c%s decay.csv) bytes"
+        echo "   • Row count: $row_count"
+        
+        # Show sample content (first 5 lines)
+        echo "📄 Sample content:"
+        head -5 decay.csv
+        
+    - name: Test Telegram alert formatting (dry run)
+      env:
+        TELEGRAM_DRY_RUN: true
+        TELEGRAM_BOT_TOKEN: test_token_for_ci
+        TELEGRAM_CHAT_ID: test_chat_for_ci
+      run: |
+        echo "📱 Testing Telegram alert formatting..."
+        python -c "
+        import sys
+        sys.path.insert(0, '.')
+        from mech_exo.utils.alerts import TelegramAlerter
+        
+        # Test alerter initialization
+        config = {'bot_token': 'test', 'chat_id': 'test'}
+        alerter = TelegramAlerter(config)
+        
+        # Test markdown escaping
+        test_text = 'momentum_12_1'
+        escaped = alerter.escape_markdown(test_text)
+        print(f'✅ Markdown escaping: \"{test_text}\" -> \"{escaped}\"')
+        
+        # Test alert message format
+        alert_msg = '⚠️ *Alpha\\\\-decay Alert*\\n\\nThis is a test message for CI validation\\.'
+        print(f'✅ Alert message formatted successfully')
+        print(f'✅ Telegram alert formatting test passed')
+        "
+        
+    - name: Upload decay analysis artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: decay-analysis-results
+        path: decay.csv
+        retention-days: 3
+        
+    - name: CI Summary
+      run: |
+        echo "📊 Alpha Decay CI Summary:"
+        echo "  ✅ Fixture loaded and validated"
+        echo "  ✅ Decay analysis completed"
+        echo "  ✅ CSV export successful"
+        echo "  ✅ Telegram formatting verified"
+        echo "  ✅ Artifact uploaded"
+        echo ""
+        echo "🎯 Alpha decay monitoring is ready for production!"

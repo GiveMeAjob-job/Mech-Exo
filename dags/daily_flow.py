@@ -448,6 +448,114 @@ def create_daily_snapshot(pipeline_result: Dict[str, Any],
         }
 
 
+@task
+def generate_daily_reports(snapshot: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate HTML and Slack reports for the daily trading summary"""
+    logger = get_run_logger()
+    
+    try:
+        from mech_exo.reporting.daily import DailyReport
+        from mech_exo.reporting.html_renderer import HTMLReportRenderer
+        from mech_exo.reporting.slack_alerter import SlackAlerter
+        
+        # Generate daily report (this will include execution data)
+        date_str = snapshot['date'].strftime('%Y-%m-%d')
+        daily_report = DailyReport(date=date_str)
+        
+        reports_generated = {
+            'date': date_str,
+            'reports': [],
+            'status': 'success',
+            'errors': []
+        }
+        
+        # Generate HTML report
+        try:
+            renderer = HTMLReportRenderer()
+            renderer.create_default_templates()
+            
+            html_file = Path(f"daily_report_{date_str}.html")
+            html_content = renderer.render_daily_snapshot(daily_report, html_file)
+            
+            reports_generated['reports'].append({
+                'type': 'html',
+                'file_path': str(html_file),
+                'status': 'success'
+            })
+            
+            logger.info(f"HTML report generated: {html_file}")
+            
+        except Exception as e:
+            error_msg = f"Failed to generate HTML report: {e}"
+            logger.error(error_msg)
+            reports_generated['errors'].append(error_msg)
+        
+        # Generate Slack digest if configured
+        try:
+            slack_config = config.get('alerts', {}).get('slack', {})
+            if slack_config.get('enabled', False) and slack_config.get('webhook_url'):
+                alerter = SlackAlerter(webhook_url=slack_config['webhook_url'])
+                
+                # Add trading flow context to the report before sending
+                success = alerter.send_daily_digest(daily_report)
+                alerter.close()
+                
+                if success:
+                    reports_generated['reports'].append({
+                        'type': 'slack',
+                        'status': 'success'
+                    })
+                    logger.info("Slack digest sent successfully")
+                else:
+                    reports_generated['errors'].append("Failed to send Slack digest")
+            else:
+                logger.info("Slack integration not configured or disabled")
+                
+        except Exception as e:
+            error_msg = f"Failed to send Slack digest: {e}"
+            logger.error(error_msg)
+            reports_generated['errors'].append(error_msg)
+        
+        # Generate email digest
+        try:
+            renderer = HTMLReportRenderer()
+            renderer.create_default_templates()
+            
+            email_html = renderer.render_email_digest(daily_report)
+            email_file = Path(f"daily_digest_{date_str}.html")
+            email_file.write_text(email_html, encoding='utf-8')
+            
+            reports_generated['reports'].append({
+                'type': 'email',
+                'file_path': str(email_file),
+                'status': 'success'
+            })
+            
+            logger.info(f"Email digest generated: {email_file}")
+            
+        except Exception as e:
+            error_msg = f"Failed to generate email digest: {e}"
+            logger.error(error_msg)
+            reports_generated['errors'].append(error_msg)
+        
+        # Set overall status
+        if reports_generated['errors']:
+            reports_generated['status'] = 'partial_success' if reports_generated['reports'] else 'failed'
+        
+        logger.info(f"Report generation complete: {len(reports_generated['reports'])} reports, {len(reports_generated['errors'])} errors")
+        
+        return reports_generated
+        
+    except Exception as e:
+        logger.error(f"Failed to generate daily reports: {e}")
+        return {
+            'date': snapshot.get('date', datetime.now().date()).strftime('%Y-%m-%d'),
+            'reports': [],
+            'status': 'failed',
+            'errors': [str(e)]
+        }
+
+
 @flow(
     name="Daily Trading Flow",
     description="Complete daily trading flow: data → signals → sizing → risk → execution → monitoring",
@@ -521,11 +629,16 @@ async def daily_trading_flow(config_path: str = "config") -> Dict[str, Any]:
             risk_result, routing_summary, fill_summary, config
         )
         
+        # Phase 8: Generate Reports
+        logger.info("📄 Phase 8: Generating daily reports")
+        reports_result = generate_daily_reports(snapshot, config)
+        
         # Final summary
         flow_result = {
             'status': 'completed',
             'timestamp': datetime.now(),
             'daily_snapshot': snapshot,
+            'reports_generated': reports_result,
             'performance_summary': {
                 'signals_generated': len(signals),
                 'positions_approved': risk_result.get('positions_approved', 0),

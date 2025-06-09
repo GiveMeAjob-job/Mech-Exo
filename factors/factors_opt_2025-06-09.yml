@@ -1,0 +1,58 @@
+metadata:
+  created_at: '2025-06-09T10:02:09.063495'
+  optimization_method: optuna_tpe
+  study_name: factor_weight_optimization
+  best_trial_number: 3
+  best_sharpe_ratio: 0.0
+  max_drawdown: 0.6114180785121681
+  total_return: -0.6025834899468238
+  volatility: 0.07814748876950926
+  constraints_satisfied: false
+  constraint_violations: 2
+  total_trials: 5
+  sampler: TPESampler
+  pruner: MedianPruner
+factors:
+  fundamental:
+    pe_ratio:
+      weight: -0.1054
+      direction: higher_better
+      category: fundamental
+    return_on_equity:
+      weight: -0.6566
+      direction: higher_better
+      category: fundamental
+    revenue_growth:
+      weight: 0.885
+      direction: higher_better
+      category: fundamental
+    earnings_growth:
+      weight: -0.1803
+      direction: higher_better
+      category: fundamental
+  technical:
+    rsi_14:
+      weight: 0.5643
+      direction: higher_better
+      category: technical
+    momentum_12_1:
+      weight: -0.9768
+      direction: higher_better
+      category: technical
+    volatility_ratio:
+      weight: -0.4198
+      direction: higher_better
+      category: technical
+  sentiment:
+    news_sentiment:
+      weight: -0.6999
+      direction: higher_better
+      category: sentiment
+    analyst_revisions:
+      weight: 0.2559
+      direction: higher_better
+      category: sentiment
+hyperparameters:
+  cash_pct: 0.2624
+  stop_loss_pct: 0.1685
+  position_size_pct: 0.1277

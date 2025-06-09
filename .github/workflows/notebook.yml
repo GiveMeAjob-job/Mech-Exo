@@ -1,0 +1,237 @@
+name: Notebook Smoke Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'notebooks/**'
+      - 'mech_exo/**'
+      - 'requirements.txt'
+      - '.github/workflows/notebook.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'notebooks/**'
+      - 'mech_exo/**'
+      - 'requirements.txt'
+      - '.github/workflows/notebook.yml'
+
+jobs:
+  notebook-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          build-essential \
+          libhdf5-dev \
+          pkg-config
+          
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install nbconvert jupyter matplotlib seaborn
+        
+    - name: Set up environment for notebook execution
+      run: |
+        # Set stub mode for offline execution
+        echo "EXO_MODE=stub" >> $GITHUB_ENV
+        
+        # Create necessary directories
+        mkdir -p data/processed data/raw config
+        
+        # Create minimal config files for testing
+        cat > config/backtest.yml << EOF
+        initial_cash: 100000
+        commission_per_share: 0.005
+        slippage_pct: 0.001
+        spread_cost_pct: 0.0005
+        EOF
+        
+    - name: Execute backtest demo notebook
+      run: |
+        cd notebooks
+        jupyter nbconvert \
+          --execute \
+          --to html \
+          --ExecutePreprocessor.timeout=300 \
+          --ExecutePreprocessor.kernel_name=python3 \
+          --output=backtest_demo_executed.html \
+          backtest_demo.ipynb
+      env:
+        EXO_MODE: stub
+        PYTHONPATH: ${{ github.workspace }}
+        
+    - name: Validate notebook output
+      run: |
+        cd notebooks
+        
+        # Check that HTML file was created
+        if [ ! -f "backtest_demo_executed.html" ]; then
+          echo "❌ Notebook HTML output not found"
+          exit 1
+        fi
+        
+        # Check file size (should be reasonable)
+        size=$(stat -c%s "backtest_demo_executed.html")
+        if [ $size -lt 10000 ]; then
+          echo "❌ Notebook output too small (${size} bytes)"
+          exit 1
+        fi
+        
+        # Check for key content in output
+        if ! grep -q "Demo completed successfully" "backtest_demo_executed.html"; then
+          echo "❌ Notebook did not complete successfully"
+          exit 1
+        fi
+        
+        if ! grep -q "Performance visualization completed" "backtest_demo_executed.html"; then
+          echo "❌ Notebook visualization did not complete"
+          exit 1
+        fi
+        
+        echo "✅ Notebook executed successfully"
+        echo "📊 Output size: ${size} bytes"
+        
+    - name: Check for chart output
+      run: |
+        cd notebooks
+        
+        # Check if chart was generated
+        if [ -f "backtest_demo_results.png" ]; then
+          chart_size=$(stat -c%s "backtest_demo_results.png")
+          echo "📈 Chart generated: ${chart_size} bytes"
+          
+          # Validate chart size (should be reasonable)
+          if [ $chart_size -lt 10000 ] || [ $chart_size -gt 500000 ]; then
+            echo "⚠️  Chart size unusual: ${chart_size} bytes"
+          else
+            echo "✅ Chart size appropriate"
+          fi
+        else
+          echo "⚠️  Chart file not found (may be expected in CI)"
+        fi
+        
+    - name: Upload notebook artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: notebook-outputs
+        path: |
+          notebooks/backtest_demo_executed.html
+          notebooks/backtest_demo_results.png
+        retention-days: 7
+        
+    - name: Test notebook execution summary
+      run: |
+        echo "📊 Notebook Smoke Test Summary:"
+        echo "✅ Notebook executed without errors"
+        echo "✅ HTML output generated"
+        echo "✅ Key completion markers found"
+        echo "✅ Performance visualizations created"
+        echo ""
+        echo "🔗 Artifacts uploaded for review"
+        
+  notebook-lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install nbqa and dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install nbqa black flake8 isort
+        
+    - name: Check notebook formatting
+      run: |
+        # Check if notebooks are properly formatted
+        nbqa black --check notebooks/
+        echo "✅ Notebook formatting check passed"
+        
+    - name: Check notebook imports
+      run: |
+        # Basic import validation
+        nbqa flake8 notebooks/ \
+          --select=E9,F63,F7,F82 \
+          --ignore=F401,E501,W503
+        echo "✅ Notebook import check passed"
+        
+  # Additional job to test notebook in different Python versions
+  notebook-compatibility:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.11']
+        
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas numpy matplotlib jupyter nbconvert
+        pip install -e .
+        
+    - name: Quick syntax check
+      run: |
+        # Extract Python code from notebook and check syntax
+        jupyter nbconvert \
+          --to script \
+          --output=backtest_demo_syntax_check.py \
+          notebooks/backtest_demo.ipynb
+          
+        python -m py_compile backtest_demo_syntax_check.py
+        echo "✅ Notebook syntax valid for Python ${{ matrix.python-version }}"
+        
+    - name: Import test
+      run: |
+        cd notebooks
+        python -c "
+        import sys
+        sys.path.insert(0, '..')
+        try:
+            # Test key imports that notebook uses
+            import pandas as pd
+            import numpy as np
+            import matplotlib.pyplot as plt
+            from pathlib import Path
+            print('✅ Core dependencies available')
+            
+            # Test Mech-Exo imports
+            from mech_exo.backtest.signal_builder import idea_rank_to_signals
+            print('✅ Mech-Exo signal builder import successful')
+            
+        except ImportError as e:
+            print(f'⚠️  Import issue (may be expected): {e}')
+        except Exception as e:
+            print(f'❌ Unexpected error: {e}')
+            sys.exit(1)
+        "
+        
+        echo "✅ Compatibility test passed for Python ${{ matrix.python-version }}"

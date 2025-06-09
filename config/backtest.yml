@@ -1,0 +1,54 @@
+# Backtesting Configuration
+# Realistic trading costs and risk parameters for historical testing
+
+# Trading Costs
+commission_per_share: 0.005      # $0.005 per share commission
+slippage_pct: 0.001              # 0.1% slippage on market orders
+spread_cost_pct: 0.0005          # 0.05% bid-ask spread cost
+
+# Portfolio Parameters  
+initial_cash: 100000             # $100k starting capital
+max_leverage: 1.0                # No leverage by default
+position_size_limit: 0.1         # Max 10% of portfolio per position
+
+# Risk Management
+max_portfolio_var: 0.02          # 2% portfolio VaR limit
+max_single_position_var: 0.005   # 0.5% single position VaR limit
+correlation_limit: 0.7           # Max correlation between positions
+
+# Execution Settings
+execution_delay: 1               # 1-day execution delay
+fill_probability: 0.98           # 98% fill rate for limit orders
+partial_fill_ratio: 0.85        # 85% average fill for large orders
+
+# Benchmark Settings
+benchmark_symbol: "SPY"          # S&P 500 ETF as benchmark
+risk_free_rate: 0.02            # 2% annual risk-free rate
+target_volatility: 0.15         # 15% target portfolio volatility
+
+# Rebalancing
+default_rebal_freq: "monthly"    # Default rebalancing frequency
+min_holding_period: 7           # Minimum 7-day holding period
+transaction_cost_threshold: 0.001 # Min 0.1% expected return to trade
+
+# Data Quality
+min_volume_filter: 1000000      # Min $1M daily volume
+min_price_filter: 5.0           # Min $5 share price
+max_tracking_error: 0.05        # Max 5% tracking error vs benchmark
+
+# Performance Attribution
+calculate_factor_exposure: true  # Calculate factor loadings
+include_sector_analysis: true    # Include sector attribution
+calculate_alpha_beta: true      # Calculate alpha/beta vs benchmark
+
+# Reporting
+include_drawdown_analysis: true  # Detailed drawdown analysis
+calculate_risk_metrics: true    # VaR, Sharpe, Sortino, etc.
+export_trade_log: true         # Export detailed trade log
+generate_tearsheet: true       # Generate HTML tearsheet
+
+# Walk-Forward Analysis
+wf_train_period: 252            # 1-year training period (trading days)
+wf_test_period: 63              # 3-month test period (trading days)
+wf_step_size: 21               # 1-month step size (trading days)
+wf_min_observations: 500       # Minimum observations for training

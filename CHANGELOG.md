@@ -5,6 +5,119 @@ All notable changes to the Mech-Exo trading system will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 🚀 [0.5.0] - 2025-06-15 - **Operations & Production Readiness Release**
+
+This major release completes the production readiness journey with comprehensive operational tools, monitoring, and hardening. Mech-Exo is now ready for limited production deployment with enterprise-grade operations support.
+
+### ✨ New Features
+
+#### **Unified Operations Dashboard (Phase P9)**
+- **Real-time Monitoring**: Comprehensive ops dashboard with system health, alerts, flow status, and CI badges
+- **5-Minute Auto-refresh**: Live monitoring with automatic status updates and operational metrics
+- **System Health Cards**: Visual status indicators for trading, risk, ML systems, and infrastructure
+- **Grafana Integration**: Embedded resource monitoring with iframe support for system metrics
+- **Bootstrap UI**: Modern, responsive interface with accordion layouts and status badges
+
+#### **Cost & Slippage Analytics**
+- **Trading Cost Analysis**: Comprehensive breakdown of commission, slippage, and spread costs
+- **Basis Points Calculation**: Industry-standard cost metrics with percentile analysis
+- **Market Data Integration**: Real-time slippage calculation using bid-ask spreads and OHLC data
+- **HTML Report Export**: Professional cost analysis reports with charts and summary statistics
+- **CLI Integration**: `mech-exo costs` command with date range filtering and CSV export
+
+#### **Incident Response & Runbook**
+- **10 Common Incidents**: Complete runbook covering system down, trading halted, risk breaches, and more
+- **Automated Escalation**: 3-level escalation chain (Telegram → Email → Phone) with timing controls
+- **Quiet Hours Support**: 22:00-06:00 local time suppression with critical alert override
+- **Resolution Procedures**: Step-by-step diagnosis and remediation for each incident type
+- **CLI Runbook Tools**: Export, lookup, and escalation testing via `mech-exo runbook` commands
+
+#### **Emergency Rollback System**
+- **Git-based Rollback**: Automated rollback of flows, configs, and database states to specific timestamps
+- **Dry-run Mode**: Safe preview of rollback operations with change detection and file diff
+- **Safety Mechanisms**: Confirmation prompts, automatic backups, and commit history validation
+- **Multi-target Support**: Flow deployments, configuration files, and database flag rollbacks
+- **Telegram Notifications**: Automatic alerts when emergency rollbacks are executed
+
+#### **Final CI Gate & Quality Assurance**
+- **Full-flow Testing**: Automated testing of all major flows (ML inference, reweight, canary, data pipeline)
+- **Stub Mode Validation**: Complete CI testing with mocked external dependencies
+- **Health Endpoint Verification**: Automated validation of `ops_ok` status in CI pipeline
+- **Coverage Requirements**: 80%+ test coverage enforcement with detailed reporting
+- **Performance Benchmarks**: Sub-8-minute CI runtime with artifact collection
+
+### 🔧 Operations & Reliability Improvements
+
+#### **Alert System Enhancement**
+- **Escalation Levels**: Configurable escalation with channel routing (Telegram/Email/Phone)
+- **Quiet Hours Management**: Smart suppression with critical alert override capabilities
+- **New Alert Types**: System alerts and info notifications for operational events
+- **Channel Fallback**: Automatic fallback to available alerting channels
+
+#### **System Monitoring**
+- **Health Endpoint Enhancement**: New `ops_ok` field for operational health assessment
+- **Resource Metrics**: CPU, memory, disk, and load average monitoring with psutil integration
+- **Flow Status Tracking**: Prefect flow execution monitoring with success/failure tracking
+- **CI Status Integration**: GitHub Actions badge integration with build status monitoring
+
+#### **Load Testing & Performance**
+- **10x Volume Stress Testing**: Concurrent order processing with 5,000+ order simulation
+- **Performance Benchmarks**: P95 latency < 500ms requirement with statistical analysis
+- **Throughput Measurement**: Orders per second tracking with success rate monitoring
+- **Database Performance**: Concurrent write testing with integrity validation
+
+### 📚 Documentation & Process Improvements
+
+#### **Go-Live Checklist**
+- **15-Item Security Review**: Comprehensive pre-production security audit checklist
+- **Backup & DR Procedures**: Disaster recovery planning with RTO/RPO definitions
+- **Compliance Framework**: Regulatory compliance verification and audit trail requirements
+- **Performance SLAs**: Defined service level agreements and monitoring thresholds
+
+#### **Release Management**
+- **GitHub Issue Templates**: Structured go-live readiness tracking with sign-off requirements
+- **Release Documentation**: Complete deployment procedures and rollback plans
+- **Emergency Procedures**: Incident response plans with contact information and escalation
+
+### 🔒 Security & Compliance
+
+#### **Key Management**
+- **API Key Rotation**: Automated procedures for refreshing external service credentials
+- **Secret Management**: Environment-based configuration with vault integration support
+- **Access Control**: Production authentication and authorization framework
+
+#### **Audit & Compliance**
+- **Trade Reporting**: Enhanced audit trail with incident tracking and rollback logging
+- **Data Retention**: Configurable retention policies with backup validation
+- **Compliance Monitoring**: Automated compliance checking with violation alerting
+
+### 🧪 Testing & Quality Assurance
+
+#### **Comprehensive Test Suite**
+- **Stress Testing**: High-volume order processing with performance validation
+- **Integration Testing**: End-to-end flow testing with external dependency mocking
+- **Performance Testing**: Latency and throughput benchmarking with statistical analysis
+- **Reliability Testing**: Error handling and recovery validation under load
+
+#### **CI/CD Enhancements**
+- **Final Gate Pipeline**: Comprehensive pre-deployment validation with all flows
+- **Artifact Management**: Test results, coverage reports, and performance metrics collection
+- **Quality Gates**: Automated blocking for performance regressions and test failures
+
+### 🚀 Production Readiness Milestone
+
+- **✅ Operational Dashboard**: Real-time monitoring and alerting
+- **✅ Incident Response**: Comprehensive runbook and escalation procedures  
+- **✅ Emergency Controls**: Rollback system and kill switches
+- **✅ Performance Validation**: 10x load testing and optimization
+- **✅ Security Hardening**: Key rotation and access control
+- **✅ Compliance Framework**: Audit trails and regulatory procedures
+- **✅ Documentation**: Complete operational procedures and checklists
+
+**Mech-Exo v0.5.0 is now production-ready for limited deployment with enterprise-grade operational support.**
+
+---
+
 ## 🚀 [0.4.0] - 2025-06-07 - **Execution Engine Release**
 
 This major release introduces the complete execution engine, making Mech-Exo ready for live trading with comprehensive safety controls and monitoring.

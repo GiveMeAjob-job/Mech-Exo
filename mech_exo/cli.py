@@ -177,6 +177,214 @@ def main():
     optuna_run_parser.add_argument("--progress-interval", type=int, default=10,
                                   help="Print progress every N trials")
     
+    # ML Feature Building
+    ml_features_parser = subparsers.add_parser("ml-features", help="Build ML feature matrices")
+    ml_features_parser.add_argument("--start", type=str, required=True,
+                                   help="Start date (YYYY-MM-DD)")
+    ml_features_parser.add_argument("--end", type=str, required=True,
+                                   help="End date (YYYY-MM-DD)")
+    ml_features_parser.add_argument("--symbols", type=str, default=None,
+                                   help="Comma-separated list of symbols (optional)")
+    ml_features_parser.add_argument("--output-dir", type=str, default="data/features",
+                                   help="Output directory (default: data/features)")
+    ml_features_parser.add_argument("--verbose", action="store_true", default=False,
+                                   help="Enable verbose logging")
+    
+    # ML Model Training
+    ml_train_parser = subparsers.add_parser("ml-train", help="Train ML models for alpha signals")
+    ml_train_parser.add_argument("--algo", type=str, default="lightgbm",
+                                choices=["lightgbm", "xgboost"],
+                                help="Algorithm to use (default: lightgbm)")
+    ml_train_parser.add_argument("--lookback", type=str, default="3y",
+                                help="Training data lookback period (e.g., 3y, 1y, 180d)")
+    ml_train_parser.add_argument("--cv", type=int, default=5,
+                                help="Number of cross-validation folds (default: 5)")
+    ml_train_parser.add_argument("--n-iter", type=int, default=30,
+                                help="Number of hyperparameter search iterations (default: 30)")
+    ml_train_parser.add_argument("--seed", type=int, default=42,
+                                help="Random seed for reproducibility (default: 42)")
+    ml_train_parser.add_argument("--features-dir", type=str, default="data/features",
+                                help="Directory containing feature files (default: data/features)")
+    ml_train_parser.add_argument("--models-dir", type=str, default="models",
+                                help="Directory to save models and metrics (default: models)")
+    ml_train_parser.add_argument("--verbose", action="store_true", default=False,
+                                help="Enable verbose logging")
+    
+    # ML SHAP Analysis
+    ml_shap_parser = subparsers.add_parser("ml-shap", help="Generate SHAP feature importance reports")
+    ml_shap_parser.add_argument("--model", type=str, required=True,
+                               help="Path to trained model file (required)")
+    ml_shap_parser.add_argument("--date", type=str, default="today",
+                               help="Date for feature data (YYYY-MM-DD or 'today')")
+    ml_shap_parser.add_argument("--features-dir", type=str, default="data/features",
+                               help="Directory containing feature files (default: data/features)")
+    ml_shap_parser.add_argument("--output-dir", type=str, default="reports/shap",
+                               help="Output directory for reports (default: reports/shap)")
+    ml_shap_parser.add_argument("--png", type=str, default=None,
+                               help="Custom PNG filename (optional)")
+    ml_shap_parser.add_argument("--html", type=str, default=None,
+                               help="Custom HTML filename (optional)")
+    ml_shap_parser.add_argument("--top", type=int, default=20,
+                               help="Number of top features to display (default: 20)")
+    ml_shap_parser.add_argument("--algo", type=str, default=None,
+                               choices=["lightgbm", "xgboost"],
+                               help="Algorithm type (auto-detected if not specified)")
+    ml_shap_parser.add_argument("--verbose", action="store_true", default=False,
+                               help="Enable verbose logging")
+    
+    # ML Prediction/Inference
+    ml_predict_parser = subparsers.add_parser("ml-predict", help="Generate ML alpha predictions")
+    ml_predict_parser.add_argument("--model", type=str, required=True,
+                                  help="Path to trained model file (required)")
+    ml_predict_parser.add_argument("--date", type=str, default="today",
+                                  help="Target date for prediction (YYYY-MM-DD or 'today')")
+    ml_predict_parser.add_argument("--symbols", type=str, default=None,
+                                  help="Comma-separated list of symbols (optional)")
+    ml_predict_parser.add_argument("--features-dir", type=str, default="data/features",
+                                  help="Directory containing feature files (default: data/features)")
+    ml_predict_parser.add_argument("--outfile", type=str, default="ml_scores.csv",
+                                  help="Output CSV file path (default: ml_scores.csv)")
+    ml_predict_parser.add_argument("--normalize", action="store_true", default=True,
+                                  help="Normalize scores to 0-1 range (default: True)")
+    ml_predict_parser.add_argument("--no-normalize", dest="normalize", action="store_false",
+                                  help="Disable score normalization")
+    ml_predict_parser.add_argument("--verbose", action="store_true", default=False,
+                                  help="Enable verbose logging")
+    
+    # Idea Scoring with ML Integration
+    score_parser = subparsers.add_parser("score", help="Score and rank investment ideas")
+    score_parser.add_argument("--symbols", type=str, nargs="+", default=None,
+                             help="Symbols to score (default: all universe)")
+    score_parser.add_argument("--use-ml", action="store_true", default=False,
+                             help="Integrate ML scores into ranking")
+    score_parser.add_argument("--ml-scores", type=str, default=None,
+                             help="Path to ML scores CSV file")
+    score_parser.add_argument("--output", type=str, default="idea_scores.csv",
+                             help="Output CSV file (default: idea_scores.csv)")
+    score_parser.add_argument("--config", type=str, default="config/factors.yml",
+                             help="Factors configuration file")
+    score_parser.add_argument("--top", type=int, default=None,
+                             help="Return only top N results")
+    score_parser.add_argument("--verbose", "-v", action="store_true", default=False,
+                             help="Enable verbose logging")
+    
+    # Weight Adjustment Command
+    weight_parser = subparsers.add_parser("weight-adjust", help="Test ML weight adjustment")
+    weight_parser.add_argument("--baseline", type=float, required=True,
+                              help="Baseline strategy Sharpe ratio")
+    weight_parser.add_argument("--ml", type=float, required=True,
+                              help="ML strategy Sharpe ratio")
+    weight_parser.add_argument("--current", type=float, required=True,
+                              help="Current ML weight (0.0-0.50)")
+    weight_parser.add_argument("--notify", action="store_true", default=False,
+                              help="Send test Telegram notification")
+    weight_parser.add_argument("--dry-run", action="store_true", default=False,
+                              help="Dry run mode - don't update YAML or send real notifications")
+    
+    # Canary A/B Testing Commands
+    canary_parser = subparsers.add_parser("canary", help="Canary A/B testing management")
+    canary_subparsers = canary_parser.add_subparsers(dest="canary_command", help="Canary subcommands")
+    
+    # Canary status command
+    canary_status_parser = canary_subparsers.add_parser("status", help="Check canary allocation status")
+    canary_status_parser.add_argument("--verbose", "-v", action="store_true", default=False,
+                                     help="Show detailed status including breach counter")
+    
+    # Canary enable command
+    canary_enable_parser = canary_subparsers.add_parser("enable", help="Enable canary allocation")
+    canary_enable_parser.add_argument("--pct", type=float, default=None,
+                                     help="Set allocation percentage (0.01-0.30, default: keep current)")
+    canary_enable_parser.add_argument("--reset-breaches", action="store_true", default=False,
+                                     help="Reset consecutive breach counter to 0")
+    
+    # Canary disable command  
+    canary_disable_parser = canary_subparsers.add_parser("disable", help="Disable canary allocation")
+    canary_disable_parser.add_argument("--reason", type=str, default="manual",
+                                      help="Disable reason (default: manual)")
+    
+    # Canary test command
+    canary_test_parser = canary_subparsers.add_parser("test", help="Test canary threshold logic")
+    canary_test_parser.add_argument("--sharpe", type=float, required=True,
+                                   help="Test Sharpe ratio value")
+    canary_test_parser.add_argument("--days", type=int, default=1,
+                                   help="Simulate consecutive days (default: 1)")
+    canary_test_parser.add_argument("--reset", action="store_true", default=False,
+                                   help="Reset breach counter before test")
+    
+    # Canary performance command
+    canary_perf_parser = canary_subparsers.add_parser("performance", help="Show canary performance summary")
+    canary_perf_parser.add_argument("--days", type=int, default=30,
+                                   help="Days of history to show (default: 30)")
+    canary_perf_parser.add_argument("--export", type=str, default=None,
+                                   help="Export to CSV file")
+    
+    # Canary config command
+    canary_config_parser = canary_subparsers.add_parser("config", help="Show canary configuration")
+    canary_config_parser.add_argument("--edit", action="store_true", default=False,
+                                     help="Open config file for editing")
+    
+    # Trading Cost Analysis Commands
+    costs_parser = subparsers.add_parser("costs", help="Trading cost & slippage analysis")
+    costs_parser.add_argument("--from", dest="start_date", required=True,
+                             help="Start date (YYYY-MM-DD)")
+    costs_parser.add_argument("--to", dest="end_date", required=True,
+                             help="End date (YYYY-MM-DD)")
+    costs_parser.add_argument("--html", type=str, default=None,
+                             help="Export HTML report to file (e.g., trade_costs.html)")
+    costs_parser.add_argument("--csv", type=str, default=None,
+                             help="Export detailed data to CSV file")
+    costs_parser.add_argument("--update-table", action="store_true", default=False,
+                             help="Update trade_costs summary table in database")
+    costs_parser.add_argument("--verbose", "-v", action="store_true", default=False,
+                             help="Show detailed output")
+    
+    # Incident Rollback Commands
+    rollback_parser = subparsers.add_parser("rollback", help="Emergency rollback tooling")
+    rollback_parser.add_argument("--flow", type=str, choices=['ml_reweight', 'canary_perf', 'daily_flow', 'data_pipeline'],
+                                help="Flow to rollback (e.g., ml_reweight, canary_perf)")
+    rollback_parser.add_argument("--config", type=str,
+                                help="Config file to rollback (e.g., config/factors.yml)")
+    rollback_parser.add_argument("--database", action="store_true", default=False,
+                                help="Rollback database flags (canary state, etc.)")
+    rollback_parser.add_argument("--to", dest="target_timestamp", required=True,
+                                help="Target timestamp (YYYY-MM-DDTHH:MM:SS)")
+    rollback_parser.add_argument("--dry-run", action="store_true", default=False,
+                                help="Simulate rollback without making changes")
+    rollback_parser.add_argument("--force", action="store_true", default=False,
+                                help="Skip confirmation prompt (dangerous)")
+    rollback_parser.add_argument("--history", action="store_true", default=False,
+                                help="Show recent rollback history")
+    
+    # Runbook command
+    runbook_parser = subparsers.add_parser("runbook", help="On-call runbook and incident management")
+    runbook_subparsers = runbook_parser.add_subparsers(dest="runbook_action", help="Runbook actions")
+    
+    # Export runbook
+    export_parser = runbook_subparsers.add_parser("export", help="Export runbook to markdown")
+    export_parser.add_argument("--output", type=str, default="oncall_runbook.md",
+                              help="Output markdown file path")
+    
+    # Lookup incident
+    lookup_parser = runbook_subparsers.add_parser("lookup", help="Lookup incident by ID")
+    lookup_parser.add_argument("incident_id", type=str,
+                              help="Incident ID (e.g., system_down, trading_halted)")
+    
+    # List incidents
+    list_parser = runbook_subparsers.add_parser("list", help="List all available incidents")
+    
+    # Test escalation
+    escalate_parser = runbook_subparsers.add_parser("escalate", help="Test escalation system")
+    escalate_parser.add_argument("incident_id", type=str,
+                                help="Incident ID to escalate")
+    escalate_parser.add_argument("--level", choices=["telegram", "email", "phone"],
+                                default="telegram", help="Escalation level")
+    escalate_parser.add_argument("--details", type=str, default="Test escalation",
+                                help="Additional details for escalation")
+    
+    # Capital management command
+    from mech_exo.cli.capital import create_capital_parser
+    create_capital_parser(subparsers)
+    
     args = parser.parse_args()
     
     if args.command == "daily":
@@ -232,6 +440,44 @@ def main():
         _handle_optuna_run(args.n_trials, args.study_file, args.study_name, 
                           args.n_jobs, args.timeout, args.export_best,
                           args.stage, args.notify_progress, args.progress_interval)
+    
+    elif args.command == "ml-features":
+        _handle_ml_features(args.start, args.end, args.symbols, args.output_dir, args.verbose)
+    
+    elif args.command == "ml-train":
+        _handle_ml_train(args.algo, args.lookback, args.cv, args.n_iter, args.seed,
+                        args.features_dir, args.models_dir, args.verbose)
+    
+    elif args.command == "ml-shap":
+        _handle_ml_shap(args.model, args.date, args.features_dir, args.output_dir,
+                       args.png, args.html, args.top, args.algo, args.verbose)
+    
+    elif args.command == "ml-predict":
+        _handle_ml_predict(args.model, args.date, args.symbols, args.features_dir,
+                          args.outfile, args.normalize, args.verbose)
+    
+    elif args.command == "score":
+        _handle_score(args.symbols, args.use_ml, args.ml_scores, args.output,
+                     args.config, args.top, args.verbose)
+    
+    elif args.command == "weight-adjust":
+        _handle_weight_adjust(args.baseline, args.ml, args.current, args.notify, args.dry_run)
+        
+    elif args.command == "canary":
+        _handle_canary_command(args)
+        
+    elif args.command == "costs":
+        _handle_costs_command(args)
+        
+    elif args.command == "rollback":
+        _handle_rollback_command(args)
+        
+    elif args.command == "runbook":
+        _handle_runbook_command(args)
+        
+    elif args.command == "capital":
+        from mech_exo.cli.capital import handle_capital_command
+        handle_capital_command(args)
         
     else:
         parser.print_help()
@@ -1188,6 +1434,1040 @@ def _handle_staging(yaml_file: str) -> bool:
 def _export_best_trial(study, output_file: str) -> bool:
     """Export best trial parameters to YAML file (legacy function)"""
     return _export_best_trial_enhanced(study, output_file)
+
+
+def _handle_ml_features(start_date: str, end_date: str, symbols: str = None, 
+                       output_dir: str = "data/features", verbose: bool = False):
+    """Handle ML feature building command"""
+    import logging
+    
+    try:
+        from mech_exo.ml.features import build_features_cli
+        
+        # Set up logging
+        if verbose:
+            logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+        else:
+            logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+        
+        # Parse symbols
+        symbol_list = None
+        if symbols:
+            symbol_list = [s.strip().upper() for s in symbols.split(',')]
+            
+        print(f"🏗️ Building ML features...")
+        print(f"   Date range: {start_date} to {end_date}")
+        print(f"   Output dir: {output_dir}")
+        
+        if symbol_list:
+            print(f"   Symbols: {len(symbol_list)} specified ({', '.join(symbol_list[:5])}{'...' if len(symbol_list) > 5 else ''})")
+        else:
+            print("   Symbols: All available")
+            
+        # Build features
+        build_features_cli(
+            start_date=start_date,
+            end_date=end_date,
+            symbols=symbol_list,
+            output_dir=output_dir
+        )
+        
+        print("✅ ML feature building completed successfully!")
+        
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        print("Make sure the ML module dependencies are installed")
+        sys.exit(1)
+        
+    except Exception as e:
+        print(f"❌ ML feature building failed: {e}")
+        if verbose:
+            import traceback
+            print(traceback.format_exc())
+        sys.exit(1)
+
+
+def _handle_ml_train(algorithm: str, lookback: str, cv_folds: int, n_iter: int, seed: int,
+                    features_dir: str, models_dir: str, verbose: bool = False):
+    """Handle ML training command"""
+    import logging
+    
+    try:
+        from mech_exo.ml.train_ml import train_ml_cli
+        
+        # Set up logging
+        if verbose:
+            logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+        else:
+            logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+        
+        print(f"🚀 Starting ML model training...")
+        print(f"   Algorithm: {algorithm}")
+        print(f"   Lookback: {lookback}")
+        print(f"   CV folds: {cv_folds}")
+        print(f"   Hyperparameter iterations: {n_iter}")
+        print(f"   Features dir: {features_dir}")
+        print(f"   Models dir: {models_dir}")
+        print(f"   Random seed: {seed}")
+        
+        # Run training
+        results = train_ml_cli(
+            algorithm=algorithm,
+            lookback=lookback,
+            cv_folds=cv_folds,
+            n_iter=n_iter,
+            seed=seed,
+            features_dir=features_dir,
+            models_dir=models_dir
+        )
+        
+        print(f"\n✅ ML training completed successfully!")
+        print(f"   Best AUC: {results['best_auc']:.4f}")
+        print(f"   Training samples: {results['training_samples']:,}")
+        print(f"   Features: {results['features']}")
+        print(f"   Model saved: {results['model_file']}")
+        print(f"   Metrics saved: {results['metrics_file']}")
+        
+        # Display metrics
+        metrics = results['metrics']
+        print(f"\n📊 Performance Metrics:")
+        print(f"   Mean AUC: {metrics['mean_auc']:.4f} ± {metrics['std_auc']:.4f}")
+        print(f"   Mean IC: {metrics['mean_ic']:.4f} ± {metrics['std_ic']:.4f}")
+        print(f"   Mean Accuracy: {metrics['mean_accuracy']:.4f} ± {metrics['std_accuracy']:.4f}")
+        
+        if results['best_auc'] >= 0.60:
+            print(f"\n🎯 Model meets AUC threshold (≥0.60)!")
+        else:
+            print(f"\n⚠️  Model AUC below threshold (<0.60)")
+        
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        print("Make sure ML dependencies are installed:")
+        print("  pip install lightgbm scikit-learn scipy")
+        sys.exit(1)
+        
+    except Exception as e:
+        print(f"❌ ML training failed: {e}")
+        if verbose:
+            import traceback
+            print(traceback.format_exc())
+        sys.exit(1)
+
+
+def _handle_ml_shap(model_path: str, date: str, features_dir: str, output_dir: str,
+                   png_name: str, html_name: str, top_k: int, algorithm: str, 
+                   verbose: bool = False):
+    """Handle ML SHAP analysis command"""
+    import logging
+    
+    try:
+        from mech_exo.ml.report_ml import shap_report_cli
+        
+        # Set up logging
+        if verbose:
+            logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+        else:
+            logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+        
+        print(f"🔍 Starting SHAP feature importance analysis...")
+        print(f"   Model: {model_path}")
+        print(f"   Date: {date}")
+        print(f"   Features dir: {features_dir}")
+        print(f"   Output dir: {output_dir}")
+        print(f"   Top features: {top_k}")
+        if algorithm:
+            print(f"   Algorithm: {algorithm}")
+        
+        # Generate SHAP report
+        metadata = shap_report_cli(
+            model_path=model_path,
+            date=date,
+            features_dir=features_dir,
+            output_dir=output_dir,
+            png_name=png_name,
+            html_name=html_name,
+            top_k=top_k,
+            algorithm=algorithm
+        )
+        
+        print(f"\n✅ SHAP report generated successfully!")
+        print(f"   Samples analyzed: {metadata['samples_analyzed']:,}")
+        print(f"   Features: {metadata['features_count']}")
+        print(f"   Algorithm: {metadata['algorithm']}")
+        
+        print(f"\n📊 Report Files:")
+        print(f"   PNG Summary: {metadata['png_path']} ({metadata['png_size_mb']:.2f} MB)")
+        print(f"   HTML Interactive: {metadata['html_path']} ({metadata['html_size_mb']:.2f} MB)")
+        
+        print(f"\n🔥 Top 5 Features:")
+        for i, (feature, score) in enumerate(zip(metadata['top_features'][:5], 
+                                                metadata['feature_importance_scores'][:5]), 1):
+            print(f"   {i}. {feature}: {score:.4f}")
+        
+        # File size warnings
+        if metadata['png_size_mb'] > 2.0:
+            print(f"\n⚠️  PNG file is large ({metadata['png_size_mb']:.2f} MB)")
+        if metadata['html_size_mb'] > 5.0:
+            print(f"⚠️  HTML file is large ({metadata['html_size_mb']:.2f} MB)")
+        
+        print(f"\n🎯 SHAP analysis completed! Open {metadata['html_path']} for interactive exploration.")
+        
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        print("Make sure SHAP dependencies are installed:")
+        print("  pip install shap matplotlib")
+        sys.exit(1)
+        
+    except FileNotFoundError as e:
+        print(f"❌ File not found: {e}")
+        print("Make sure model file and feature directory exist")
+        sys.exit(1)
+        
+    except Exception as e:
+        print(f"❌ SHAP analysis failed: {e}")
+        if verbose:
+            import traceback
+            print(traceback.format_exc())
+        sys.exit(1)
+
+
+def _handle_ml_predict(model_path: str, date: str, symbols: str, features_dir: str,
+                      output_file: str, normalize: bool, verbose: bool = False):
+    """Handle ML prediction command"""
+    import logging
+    
+    try:
+        from mech_exo.ml.predict import predict_cli
+        
+        # Set up logging
+        if verbose:
+            logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+        else:
+            logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+        
+        print(f"🔮 Starting ML alpha prediction...")
+        print(f"   Model: {model_path}")
+        print(f"   Date: {date}")
+        print(f"   Features dir: {features_dir}")
+        print(f"   Output file: {output_file}")
+        print(f"   Normalize: {normalize}")
+        
+        if symbols:
+            symbol_list = [s.strip().upper() for s in symbols.split(',')]
+            print(f"   Symbols: {len(symbol_list)} specified ({', '.join(symbol_list[:5])}{'...' if len(symbol_list) > 5 else ''})")
+        else:
+            print(f"   Symbols: All available")
+        
+        # Generate predictions
+        metadata = predict_cli(
+            model_path=model_path,
+            date=date,
+            symbols=symbols,
+            features_dir=features_dir,
+            output_file=output_file,
+            normalize=normalize
+        )
+        
+        if metadata['success']:
+            print(f"\n✅ ML prediction completed successfully!")
+            print(f"   Predictions: {metadata['predictions']:,}")
+            print(f"   Algorithm: {metadata['algorithm']}")
+            print(f"   Target date: {metadata['target_date']}")
+            print(f"   Output: {metadata['output_file']} ({metadata['file_size']} bytes)")
+            print(f"   Score range: [{metadata['score_range'][0]:.4f}, {metadata['score_range'][1]:.4f}]")
+            
+            print(f"\n🏆 Top 5 Predictions:")
+            for i, (symbol, score) in enumerate(zip(metadata['top_symbols'][:5], 
+                                                   metadata['top_scores'][:5]), 1):
+                print(f"   {i}. {symbol}: {score:.4f}")
+            
+            print(f"\n🎯 Predictions saved to {metadata['output_file']}!")
+            
+        else:
+            print(f"❌ Prediction failed: {metadata['message']}")
+            sys.exit(1)
+        
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        print("Make sure ML dependencies are installed:")
+        print("  pip install lightgbm scikit-learn")
+        sys.exit(1)
+        
+    except FileNotFoundError as e:
+        print(f"❌ File not found: {e}")
+        print("Make sure model file and feature directory exist")
+        sys.exit(1)
+        
+    except Exception as e:
+        print(f"❌ ML prediction failed: {e}")
+        if verbose:
+            import traceback
+            print(traceback.format_exc())
+        sys.exit(1)
+
+
+def _handle_score(symbols: list, use_ml: bool, ml_scores_file: str, output_file: str,
+                 config_path: str, top_n: int, verbose: bool = False):
+    """Handle idea scoring command"""
+    import logging
+    
+    try:
+        from mech_exo.scoring.cli import score_cli
+        
+        # Set up logging
+        if verbose:
+            logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+        else:
+            logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+        
+        print(f"🎯 Starting idea scoring...")
+        print(f"   Use ML: {use_ml}")
+        print(f"   Config: {config_path}")
+        print(f"   Output: {output_file}")
+        
+        if symbols:
+            print(f"   Symbols: {len(symbols)} specified ({', '.join(symbols[:5])}{'...' if len(symbols) > 5 else ''})")
+        else:
+            print("   Symbols: Full universe")
+        
+        if use_ml and ml_scores_file:
+            print(f"   ML scores file: {ml_scores_file}")
+        elif use_ml:
+            print("   ML scores: From database (latest)")
+        
+        if top_n:
+            print(f"   Top results: {top_n}")
+        
+        # Run scoring
+        metadata = score_cli(
+            symbols=symbols,
+            use_ml=use_ml,
+            ml_scores_file=ml_scores_file,
+            output_file=output_file,
+            config_path=config_path,
+            top_n=top_n,
+            verbose=verbose
+        )
+        
+        if metadata['success']:
+            print(f"\n✅ Idea scoring completed successfully!")
+            print(f"   Results: {metadata['results']:,}")
+            print(f"   ML integration: {metadata['use_ml']}")
+            print(f"   Output: {metadata['output_file']} ({metadata['file_size']} bytes)")
+            
+            print(f"\n🏆 Top 5 Ideas:")
+            for i, (symbol, score) in enumerate(zip(metadata['top_symbols'], metadata['top_scores']), 1):
+                print(f"   {i}. {symbol}: {score:.2f}")
+            
+            if use_ml and metadata.get('ml_scores_available'):
+                print(f"   ML weight: {metadata.get('ml_weight_used', 'N/A')}")
+                print(f"📊 ML scores successfully integrated!")
+            elif use_ml:
+                print(f"⚠️  ML requested but scores not available - using traditional scoring")
+            
+            print(f"\n🎯 Results saved to {metadata['output_file']}!")
+            
+        else:
+            print(f"❌ Scoring failed: {metadata['message']}")
+            sys.exit(1)
+        
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        print("Make sure scoring dependencies are available")
+        sys.exit(1)
+        
+    except Exception as e:
+        print(f"❌ Scoring failed: {e}")
+        if verbose:
+            import traceback
+            print(traceback.format_exc())
+        sys.exit(1)
+
+
+def _handle_weight_adjust(baseline_sharpe: float, ml_sharpe: float, current_weight: float,
+                         notify: bool = False, dry_run: bool = False):
+    """Handle weight adjustment testing command"""
+    try:
+        from mech_exo.scoring.weight_utils import compute_new_weight, validate_weight_bounds
+        from mech_exo.utils.alerts import TelegramAlerter
+        from mech_exo.utils.config import ConfigManager
+        import os
+        
+        print(f"⚖️ ML Weight Adjustment Test")
+        print(f"{'─' * 40}")
+        print(f"Baseline Sharpe: {baseline_sharpe:.3f}")
+        print(f"ML Sharpe:       {ml_sharpe:.3f}")
+        print(f"Current Weight:  {current_weight:.3f}")
+        print(f"Mode:            {'DRY RUN' if dry_run else 'TEST'}")
+        
+        # Validate current weight
+        is_valid, error_msg = validate_weight_bounds(current_weight)
+        if not is_valid:
+            print(f"❌ {error_msg}")
+            sys.exit(1)
+        
+        # Compute new weight
+        new_weight, rule = compute_new_weight(baseline_sharpe, ml_sharpe, current_weight)
+        
+        # Display results
+        delta_sharpe = ml_sharpe - baseline_sharpe
+        weight_changed = abs(new_weight - current_weight) > 0.001
+        
+        print(f"\n📊 Analysis Results:")
+        print(f"Sharpe Delta:    {delta_sharpe:+.3f}")
+        print(f"Adjustment Rule: {rule}")
+        print(f"New Weight:      {new_weight:.3f}")
+        
+        if weight_changed:
+            direction = "↗️" if new_weight > current_weight else "↘️"
+            print(f"Change:          {current_weight:.3f} {direction} {new_weight:.3f}")
+        else:
+            print(f"Change:          No adjustment needed")
+        
+        # Send notification if requested
+        if notify and weight_changed:
+            print(f"\n📱 Testing Telegram Notification...")
+            
+            try:
+                # Load Telegram configuration
+                config_manager = ConfigManager()
+                try:
+                    telegram_config = config_manager.load_config('alerts').get('telegram', {})
+                except:
+                    telegram_config = {
+                        'bot_token': os.getenv('TELEGRAM_BOT_TOKEN'),
+                        'chat_id': os.getenv('TELEGRAM_CHAT_ID')
+                    }
+                
+                if not telegram_config.get('bot_token') or not telegram_config.get('chat_id'):
+                    print("⚠️ Telegram credentials not configured")
+                    print("   Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables")
+                    print("   Or configure in config/alerts.yml")
+                else:
+                    alerter = TelegramAlerter(telegram_config)
+                    
+                    success = alerter.send_weight_change(
+                        old_w=current_weight,
+                        new_w=new_weight,
+                        sharpe_ml=ml_sharpe,
+                        sharpe_base=baseline_sharpe,
+                        adjustment_rule=rule,
+                        dry_run=True  # Always use dry-run for CLI testing
+                    )
+                    
+                    if success:
+                        print("✅ Test notification sent successfully")
+                    else:
+                        print("❌ Test notification failed")
+                        
+            except Exception as e:
+                print(f"❌ Notification test failed: {e}")
+        
+        elif notify and not weight_changed:
+            print(f"\n📱 Notification skipped (no weight change)")
+        
+        # Show example Telegram message format
+        if notify or weight_changed:
+            print(f"\n📝 Example Telegram Message:")
+            print(f"   ⚖️ ML Weight Auto-Adjusted")
+            print(f"   • Weight: {current_weight:.2f} {'↗️' if new_weight > current_weight else '↘️' if new_weight < current_weight else '➡️'} {new_weight:.2f}")
+            print(f"   • Δ Sharpe: {delta_sharpe:+.3f} ({ml_sharpe:.3f} vs {baseline_sharpe:.3f})")
+            print(f"   • Rule: {rule}")
+            print(f"   • Time: 2024-01-15 09:30:00 (commit abc123)")
+        
+        print(f"\n✅ Weight adjustment test completed")
+        
+        if dry_run:
+            print(f"💡 Note: This was a dry-run test. No files were modified.")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Weight adjustment test failed: {e}")
+        sys.exit(1)
+
+
+def _handle_canary_command(args):
+    """Handle canary A/B testing commands"""
+    try:
+        from mech_exo.execution.allocation import (
+            get_allocation_config, update_canary_enabled, is_canary_enabled,
+            get_canary_allocation, check_hysteresis_trigger, reset_breach_counter,
+            get_consecutive_breach_days
+        )
+        from mech_exo.reporting.query import get_ab_test_summary
+        import subprocess
+        import os
+        
+        if args.canary_command == "status":
+            print("🧪 Canary A/B Testing Status")
+            print("=" * 40)
+            
+            # Get basic status
+            enabled = is_canary_enabled()
+            allocation = get_canary_allocation()
+            config = get_allocation_config()
+            
+            print(f"Enabled: {'✅ YES' if enabled else '❌ NO'}")
+            print(f"Allocation: {allocation:.1%}")
+            
+            if enabled:
+                # Get performance summary
+                try:
+                    summary = get_ab_test_summary(days=30)
+                    print(f"Status: {summary['status_badge']}")
+                    print(f"Sharpe diff: {summary['sharpe_diff']:+.3f}")
+                    print(f"Days analyzed: {summary['days_analyzed']}")
+                except Exception as e:
+                    print(f"Performance data: ❌ Error ({e})")
+                
+                # Show hysteresis info if verbose
+                if args.verbose:
+                    breach_days = get_consecutive_breach_days()
+                    disable_rule = config.get('disable_rule', {})
+                    
+                    print(f"\nHysteresis Status:")
+                    print(f"  Consecutive breach days: {breach_days}")
+                    print(f"  Required for disable: {disable_rule.get('confirm_days', 2)}")
+                    print(f"  Sharpe threshold: {disable_rule.get('sharpe_low', 0.0)}")
+                    print(f"  Min observations: {disable_rule.get('min_observations', 21)}")
+            
+        elif args.canary_command == "enable":
+            print("🔄 Enabling canary allocation...")
+            
+            # Update allocation percentage if provided
+            if args.pct is not None:
+                if not (0.01 <= args.pct <= 0.30):
+                    print("❌ Allocation percentage must be between 1% and 30%")
+                    sys.exit(1)
+                
+                # Update config file
+                config = get_allocation_config()
+                config['canary_allocation'] = args.pct
+                
+                # Write updated config
+                import yaml
+                with open('config/allocation.yml', 'w') as f:
+                    yaml.dump(config, f, default_flow_style=False, indent=2)
+                
+                print(f"✅ Updated allocation to {args.pct:.1%}")
+            
+            # Reset breach counter if requested
+            if args.reset_breaches:
+                reset_breach_counter()
+                print("✅ Reset consecutive breach counter")
+            
+            # Enable canary
+            success = update_canary_enabled(True)
+            if success:
+                print("✅ Canary allocation enabled")
+            else:
+                print("❌ Failed to enable canary")
+                sys.exit(1)
+                
+        elif args.canary_command == "disable":
+            print(f"⏸️ Disabling canary allocation (reason: {args.reason})...")
+            
+            success = update_canary_enabled(False)
+            if success:
+                print("✅ Canary allocation disabled")
+                
+                # Reset breach counter when manually disabled
+                reset_breach_counter()
+                print("✅ Reset consecutive breach counter")
+            else:
+                print("❌ Failed to disable canary")
+                sys.exit(1)
+                
+        elif args.canary_command == "test":
+            print(f"🧪 Testing hysteresis logic with Sharpe {args.sharpe:.3f}")
+            
+            if args.reset:
+                reset_breach_counter()
+                print("✅ Reset breach counter before test")
+            
+            # Simulate consecutive days
+            for day in range(args.days):
+                result = check_hysteresis_trigger(args.sharpe)
+                
+                print(f"Day {day + 1}:")
+                print(f"  Breach: {'Yes' if result['is_breach'] else 'No'}")
+                print(f"  Consecutive days: {result['current_breach_days']}")
+                print(f"  Should trigger: {'Yes' if result['should_trigger'] else 'No'}")
+                
+                if result['should_trigger']:
+                    print("  🚨 AUTO-DISABLE WOULD TRIGGER!")
+                    break
+            
+            # Reset after test
+            reset_breach_counter()
+            print("✅ Reset breach counter after test")
+            
+        elif args.canary_command == "performance":
+            print(f"📊 Canary Performance Summary ({args.days} days)")
+            print("=" * 50)
+            
+            try:
+                summary = get_ab_test_summary(days=args.days)
+                
+                print(f"Status: {summary['status_badge']}")
+                print(f"Days analyzed: {summary['days_analyzed']}")
+                print(f"Canary NAV: ${summary.get('canary_nav', 0):,.0f}")
+                print(f"Base NAV: ${summary.get('base_nav', 0):,.0f}")
+                print(f"Sharpe difference: {summary['sharpe_diff']:+.3f}")
+                print(f"Canary outperforming: {'✅' if summary['sharpe_diff'] > 0 else '❌'}")
+                
+                if args.export:
+                    # Export detailed data to CSV
+                    from mech_exo.reporting.query import get_canary_equity, get_base_equity
+                    import pandas as pd
+                    
+                    canary_data = get_canary_equity(days=args.days)
+                    base_data = get_base_equity(days=args.days)
+                    
+                    # Merge data
+                    merged = pd.merge(canary_data, base_data, on='date', how='outer', suffixes=('_canary', '_base'))
+                    merged.to_csv(args.export, index=False)
+                    
+                    print(f"✅ Exported {len(merged)} records to {args.export}")
+                    
+            except Exception as e:
+                print(f"❌ Failed to get performance data: {e}")
+                sys.exit(1)
+                
+        elif args.canary_command == "config":
+            print("📋 Canary Configuration")
+            print("=" * 30)
+            
+            config = get_allocation_config()
+            
+            print(f"Enabled: {config.get('canary_enabled', True)}")
+            print(f"Allocation: {config.get('canary_allocation', 0.1):.1%}")
+            
+            disable_rule = config.get('disable_rule', {})
+            print(f"\nAuto-disable Rules:")
+            print(f"  Sharpe threshold: {disable_rule.get('sharpe_low', 0.0)}")
+            print(f"  Confirm days: {disable_rule.get('confirm_days', 2)}")
+            print(f"  Max DD %: {disable_rule.get('max_dd_pct', 2.0):.1%}")
+            print(f"  Min observations: {disable_rule.get('min_observations', 21)}")
+            
+            # Show breach counter
+            breach_days = get_consecutive_breach_days()
+            print(f"\nCurrent State:")
+            print(f"  Consecutive breach days: {breach_days}")
+            
+            if args.edit:
+                try:
+                    # Open config file in default editor
+                    editor = os.getenv('EDITOR', 'nano')
+                    subprocess.run([editor, 'config/allocation.yml'])
+                except Exception as e:
+                    print(f"❌ Failed to open editor: {e}")
+                    print("   Please edit config/allocation.yml manually")
+        else:
+            print("❌ Unknown canary command")
+            sys.exit(1)
+            
+    except ImportError as e:
+        print(f"❌ Missing dependencies: {e}")
+        print("   Try: pip install -r requirements.txt")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Canary command failed: {e}")
+        sys.exit(1)
+
+
+def _handle_costs_command(args):
+    """Handle trading cost analysis commands"""
+    try:
+        from mech_exo.reporting.costs import TradingCostAnalyzer
+        from datetime import datetime
+        import pandas as pd
+        
+        print(f"💰 Trading Cost Analysis: {args.start_date} to {args.end_date}")
+        print("=" * 60)
+        
+        # Validate dates
+        try:
+            start_date = datetime.strptime(args.start_date, '%Y-%m-%d').date()
+            end_date = datetime.strptime(args.end_date, '%Y-%m-%d').date()
+        except ValueError as e:
+            print(f"❌ Invalid date format: {e}")
+            print("   Use YYYY-MM-DD format (e.g., 2025-01-01)")
+            sys.exit(1)
+        
+        if start_date > end_date:
+            print("❌ Start date must be before end date")
+            sys.exit(1)
+        
+        # Initialize analyzer
+        analyzer = TradingCostAnalyzer()
+        
+        try:
+            # Perform cost analysis
+            print("📊 Analyzing trading costs...")
+            results = analyzer.analyze_costs(start_date, end_date)
+            
+            if 'error' in results:
+                print(f"❌ Analysis failed: {results['error']}")
+                sys.exit(1)
+            
+            # Display summary
+            summary = results.get('summary', {})
+            print(f"\n📈 Summary Results:")
+            print(f"  Total Trades: {summary.get('total_trades', 0):,}")
+            print(f"  Total Notional: ${summary.get('total_notional', 0):,.0f}")
+            print(f"  Total Costs: ${summary.get('total_costs', 0):,.2f}")
+            print(f"  Average Cost: {summary.get('avg_cost_bps', 0):.1f} bps")
+            print(f"  Commission: {summary.get('avg_commission_bps', 0):.1f} bps")
+            print(f"  Slippage: {summary.get('avg_slippage_bps', 0):.1f} bps")
+            print(f"  Spread: {summary.get('avg_spread_bps', 0):.1f} bps")
+            print(f"  Average Trade Size: ${summary.get('avg_trade_size', 0):,.0f}")
+            print(f"  Largest Trade: ${summary.get('largest_trade', 0):,.0f}")
+            
+            # Cost assessment
+            avg_cost_bps = summary.get('avg_cost_bps', 0)
+            if avg_cost_bps < 5:
+                print(f"  Assessment: ✅ Excellent (< 5 bps)")
+            elif avg_cost_bps < 10:
+                print(f"  Assessment: ✅ Good (5-10 bps)")
+            elif avg_cost_bps < 20:
+                print(f"  Assessment: ⚠️ Fair (10-20 bps)")
+            else:
+                print(f"  Assessment: ❌ High (> 20 bps)")
+            
+            # Show verbose details if requested
+            if args.verbose:
+                daily_summary = results.get('daily_summary')
+                if daily_summary is not None and not daily_summary.empty:
+                    print(f"\n📅 Daily Breakdown:")
+                    for _, row in daily_summary.iterrows():
+                        print(f"  {row['date']}: {row['trades']} trades, "
+                              f"${row['total_notional']:,.0f} notional, "
+                              f"{row['avg_cost_bps']:.1f} bps avg cost")
+                
+                symbol_analysis = results.get('symbol_analysis')
+                if symbol_analysis is not None and not symbol_analysis.empty:
+                    print(f"\n🎯 Top Symbols by Volume:")
+                    for _, row in symbol_analysis.head(10).iterrows():
+                        print(f"  {row['symbol']}: {row['trades']} trades, "
+                              f"${row['total_notional']:,.0f} notional, "
+                              f"{row['avg_cost_bps']:.1f} bps avg cost")
+            
+            # Update trade_costs table if requested
+            if args.update_table:
+                print(f"\n💾 Updating trade_costs table...")
+                success = analyzer.create_trade_costs_table(start_date, end_date)
+                if success:
+                    print("✅ Trade costs table updated successfully")
+                else:
+                    print("❌ Failed to update trade costs table")
+            
+            # Export HTML report if requested
+            if args.html:
+                print(f"\n📄 Exporting HTML report to {args.html}...")
+                success = analyzer.export_html_report(results, args.html)
+                if success:
+                    print(f"✅ HTML report saved to {args.html}")
+                    
+                    # Try to open the file
+                    try:
+                        import webbrowser
+                        from pathlib import Path
+                        file_path = Path(args.html).resolve()
+                        webbrowser.open(f"file://{file_path}")
+                        print(f"📖 Opened report in default browser")
+                    except Exception:
+                        print(f"📖 Open {args.html} in your browser to view the report")
+                else:
+                    print(f"❌ Failed to export HTML report")
+            
+            # Export CSV if requested
+            if args.csv:
+                print(f"\n📊 Exporting detailed data to {args.csv}...")
+                try:
+                    detailed_costs = results.get('detailed_costs')
+                    if detailed_costs:
+                        df = pd.DataFrame(detailed_costs)
+                        df.to_csv(args.csv, index=False)
+                        print(f"✅ CSV data exported to {args.csv}")
+                        print(f"   Exported {len(df)} fill records with cost details")
+                    else:
+                        print(f"❌ No detailed cost data available for CSV export")
+                        print(f"   (May be too many records - limit is 1000)")
+                except Exception as e:
+                    print(f"❌ Failed to export CSV: {e}")
+            
+            print(f"\n📋 Analysis Period: {summary.get('period_days', 0)} days")
+            print(f"📈 Average Trades/Day: {summary.get('avg_trades_per_day', 0):.1f}")
+            
+        finally:
+            analyzer.close()
+            
+    except ImportError as e:
+        print(f"❌ Missing dependencies: {e}")
+        print("   Try: pip install -r requirements.txt")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Cost analysis failed: {e}")
+        sys.exit(1)
+
+
+def _handle_rollback_command(args):
+    """Handle rollback commands for incident recovery"""
+    try:
+        from mech_exo.utils.rollback import RollbackManager, confirm_rollback, validate_timestamp
+        
+        print("🔄 Emergency Rollback Tool")
+        print("=" * 40)
+        
+        # Show history if requested
+        if args.history:
+            print("📜 Recent Rollback History (7 days):")
+            rollback_mgr = RollbackManager(dry_run=True)
+            history = rollback_mgr.get_rollback_history()
+            
+            if history:
+                for entry in history:
+                    print(f"  {entry['timestamp'][:19]}: {entry['message']}")
+                    print(f"    Commit: {entry['commit'][:8]}")
+                    print()
+            else:
+                print("  No recent rollbacks found")
+            return
+        
+        # Validate timestamp
+        if not validate_timestamp(args.target_timestamp):
+            print("❌ Invalid timestamp format")
+            print("   Use: YYYY-MM-DDTHH:MM:SS (e.g., 2025-06-15T09:55:00)")
+            sys.exit(1)
+        
+        # Determine rollback type
+        if args.flow:
+            rollback_type = f"flow:{args.flow}"
+            operation_desc = f"Rollback flow '{args.flow}' to {args.target_timestamp}"
+        elif args.config:
+            rollback_type = f"config:{args.config}"
+            operation_desc = f"Rollback config '{args.config}' to {args.target_timestamp}"
+        elif args.database:
+            rollback_type = "database:flags"
+            operation_desc = f"Rollback database flags to {args.target_timestamp}"
+        else:
+            print("❌ Must specify --flow, --config, or --database")
+            sys.exit(1)
+        
+        # Initialize rollback manager
+        rollback_mgr = RollbackManager(dry_run=args.dry_run)
+        
+        # Confirmation check (unless forced or dry-run)
+        if not args.dry_run and not args.force:
+            if not confirm_rollback(operation_desc):
+                print("❌ Rollback cancelled by user")
+                sys.exit(1)
+        
+        print(f"\n🎯 Target: {args.target_timestamp}")
+        print(f"🔧 Mode: {'DRY RUN' if args.dry_run else 'LIVE EXECUTION'}")
+        print(f"📦 Type: {rollback_type}")
+        print()
+        
+        # Execute rollback based on type
+        if args.flow:
+            print(f"🔄 Rolling back flow: {args.flow}")
+            result = rollback_mgr.rollback_flow_deployment(args.flow, args.target_timestamp)
+            
+        elif args.config:
+            print(f"🔄 Rolling back config: {args.config}")
+            result = rollback_mgr.rollback_config_file(args.config, args.target_timestamp)
+            
+        elif args.database:
+            print(f"🔄 Rolling back database flags")
+            result = rollback_mgr.rollback_database_state(args.target_timestamp, flags_only=True)
+        
+        # Display results
+        if result['success']:
+            if args.dry_run:
+                print("✅ DRY RUN SUCCESSFUL")
+                print(f"📋 Would change {result.get('files_to_change', result.get('files_changed', 0))} files")
+                
+                if 'rollback_plan' in result:
+                    plan = result['rollback_plan']
+                    print(f"\n📝 Rollback Plan:")
+                    for file_info in plan.get('files', []):
+                        print(f"  {file_info['path']}: {file_info['action']}")
+                
+                if 'changes_preview' in result:
+                    preview = result['changes_preview']
+                    if preview['has_changes']:
+                        print(f"\n📄 Changes Preview ({preview['diff_lines']} lines):")
+                        print(preview['preview'][:500])  # First 500 chars
+                        if len(preview['preview']) > 500:
+                            print("... (truncated)")
+                
+            else:
+                print("✅ ROLLBACK COMPLETED SUCCESSFULLY")
+                print(f"📁 Files changed: {result.get('files_changed', 0)}")
+                print(f"🎯 Target commit: {result.get('target_commit', 'N/A')[:8]}")
+                
+                if result.get('notification_sent'):
+                    print("📱 Telegram notification sent")
+                
+                if result.get('backup_path'):
+                    print(f"💾 Backup created: {result['backup_path']}")
+            
+            # Show next steps
+            print(f"\n📋 Next Steps:")
+            if not args.dry_run:
+                print("  1. Verify system functionality")
+                print("  2. Check logs for any errors")
+                print("  3. Monitor alerts for issues")
+                print("  4. Update team on rollback status")
+            else:
+                print("  1. Review the rollback plan above")
+                print("  2. Run without --dry-run if plan looks correct")
+                print("  3. Use --force to skip confirmation prompt")
+        
+        else:
+            print("❌ ROLLBACK FAILED")
+            print(f"Error: {result.get('error', 'Unknown error')}")
+            
+            if 'available_flows' in result:
+                print(f"\nAvailable flows: {', '.join(result['available_flows'])}")
+            
+            sys.exit(1)
+            
+    except ImportError as e:
+        print(f"❌ Missing dependencies: {e}")
+        print("   Try: pip install -r requirements.txt")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n❌ Rollback interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Rollback tool failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+def _handle_runbook_command(args):
+    """Handle runbook commands for on-call operations"""
+    try:
+        from mech_exo.utils.runbook import get_runbook, cli_runbook_export, cli_incident_lookup
+        from mech_exo.utils.runbook import EscalationLevel
+        from datetime import datetime
+        
+        if not args.runbook_action:
+            print("❌ Runbook action required")
+            print("Available actions: export, lookup, list, escalate")
+            sys.exit(1)
+        
+        runbook = get_runbook()
+        
+        if args.runbook_action == "export":
+            print("📖 Exporting On-Call Runbook")
+            print("=" * 40)
+            
+            success = cli_runbook_export(args.output)
+            if success:
+                print(f"✅ Runbook exported to {args.output}")
+                print(f"📋 Contains {len(runbook.runbook_entries)} incident procedures")
+                print(f"🚨 Escalation rules: Telegram → Email → Phone")
+                print(f"🌙 Quiet hours: 22:00-06:00 local")
+            else:
+                print("❌ Failed to export runbook")
+                sys.exit(1)
+        
+        elif args.runbook_action == "lookup":
+            print(f"🔍 Looking up incident: {args.incident_id}")
+            print("=" * 40)
+            
+            result = cli_incident_lookup(args.incident_id)
+            if result:
+                print(result)
+            else:
+                print(f"❌ Incident '{args.incident_id}' not found")
+                sys.exit(1)
+        
+        elif args.runbook_action == "list":
+            print("📋 Available Incident Procedures")
+            print("=" * 40)
+            
+            incidents = runbook.list_incidents()
+            for i, entry in enumerate(incidents, 1):
+                severity_icon = {
+                    "critical": "🚨",
+                    "high": "⚠️", 
+                    "medium": "📋",
+                    "low": "ℹ️"
+                }.get(entry.severity.value, "❓")
+                
+                print(f"{i:2}. {severity_icon} {entry.incident_id}")
+                print(f"     {entry.title}")
+                print(f"     Escalation: {entry.escalation_threshold_minutes}min")
+                print()
+        
+        elif args.runbook_action == "escalate":
+            print(f"🚨 Testing Escalation System")
+            print("=" * 40)
+            
+            # Validate incident ID
+            entry = runbook.get_runbook_entry(args.incident_id)
+            if not entry:
+                print(f"❌ Unknown incident ID: {args.incident_id}")
+                available_ids = list(runbook.runbook_entries.keys())
+                print(f"Available: {', '.join(available_ids)}")
+                sys.exit(1)
+            
+            # Convert level string to enum
+            level_map = {
+                "telegram": EscalationLevel.TELEGRAM,
+                "email": EscalationLevel.EMAIL,
+                "phone": EscalationLevel.PHONE
+            }
+            escalation_level = level_map[args.level]
+            
+            print(f"📱 Incident: {entry.title}")
+            print(f"🔔 Level: {args.level.upper()}")
+            print(f"📝 Details: {args.details}")
+            print()
+            
+            # Simulate incident start time (now)
+            incident_start = datetime.now()
+            
+            # Test escalation
+            success = runbook.trigger_escalation(
+                args.incident_id, 
+                incident_start, 
+                escalation_level, 
+                args.details
+            )
+            
+            if success:
+                print("✅ Escalation sent successfully")
+                
+                # Show what would happen next
+                future_escalations = runbook.should_escalate(incident_start, entry.severity)
+                if future_escalations:
+                    print(f"\n⏰ Future escalations would trigger:")
+                    for level in future_escalations:
+                        print(f"   • {level.value.upper()}")
+            else:
+                print("❌ Escalation failed")
+                sys.exit(1)
+        
+        else:
+            print(f"❌ Unknown runbook action: {args.runbook_action}")
+            sys.exit(1)
+            
+    except ImportError as e:
+        print(f"❌ Missing dependencies: {e}")
+        print("   Try: pip install -r requirements.txt")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Runbook command failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -40,6 +40,8 @@ class AlertType(Enum):
     ORDER_REJECT = "order_reject"
     RISK_VIOLATION = "risk_violation"
     SYSTEM_ERROR = "system_error"
+    SYSTEM_ALERT = "system_alert"  # Added for runbook escalations
+    SYSTEM_INFO = "system_info"    # Added for rollback notifications
     DAILY_SUMMARY = "daily_summary"
 
 
@@ -451,9 +453,80 @@ class TelegramAlerter:
             logger.error(f"Failed to send Telegram message: {e}")
             return False
     
+    def send_document(self, file_path: str, caption: str = None) -> bool:
+        """
+        Send document to Telegram
+        
+        Args:
+            file_path: Path to file to send
+            caption: Optional caption for the file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            import os
+            from pathlib import Path
+            
+            # Check for dry-run mode
+            if os.getenv('TELEGRAM_DRY_RUN', 'false').lower() == 'true':
+                logger.info("TELEGRAM_DRY_RUN=true - logging document send instead of sending")
+                logger.info(f"Dry-run Telegram document: {file_path}")
+                if caption:
+                    logger.info(f"Caption: {caption}")
+                return True
+            
+            import requests
+            
+            file_path = Path(file_path)
+            if not file_path.exists():
+                logger.error(f"File not found: {file_path}")
+                return False
+            
+            # Check file size (Telegram limit is 50MB)
+            file_size = file_path.stat().st_size
+            if file_size > 50 * 1024 * 1024:  # 50MB
+                logger.error(f"File too large for Telegram: {file_size} bytes")
+                return False
+            
+            # Prepare multipart form data
+            with open(file_path, 'rb') as file:
+                files = {
+                    'document': (file_path.name, file, 'application/octet-stream')
+                }
+                
+                data = {
+                    'chat_id': self.chat_id
+                }
+                
+                if caption:
+                    data['caption'] = caption
+                
+                response = requests.post(
+                    f"{self.api_url}/sendDocument",
+                    files=files,
+                    data=data,
+                    timeout=30  # Longer timeout for file uploads
+                )
+            
+            if response.status_code == 200:
+                logger.info(f"Telegram document sent successfully: {file_path.name}")
+                return True
+            else:
+                logger.error(f"Telegram document send failed: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to send Telegram document: {e}")
+            return False
+    
     def send_alert(self, alert: Alert) -> bool:
         """Send alert via Telegram"""
         try:
+            # Special handling for daily summary with ML metrics
+            if alert.alert_type == AlertType.DAILY_SUMMARY and alert.data and 'ml_live_metrics' in alert.data:
+                return self.send_ml_enhanced_daily_summary_telegram(alert)
+            
             # Convert alert to simple format for Telegram
             emoji = self._get_emoji_for_level(alert.level)
             
@@ -467,6 +540,77 @@ class TelegramAlerter:
         except Exception as e:
             logger.error(f"Failed to send Telegram alert: {e}")
             return False
+    
+    def send_ml_enhanced_daily_summary_telegram(self, alert: Alert) -> bool:
+        """Send ML-enhanced daily summary with rich Telegram formatting"""
+        try:
+            summary = alert.data
+            date = summary.get('date', 'today')
+            
+            # Create rich Telegram message with proper Markdown escaping
+            message = f"📊 *Daily Trading Summary*\n"
+            message += f"📅 {self.escape_markdown(str(date))}\n\n"
+            
+            # Signal Generation
+            if 'signal_generation' in summary:
+                sg = summary['signal_generation']
+                signals = sg.get('signals_generated', 0)
+                message += f"🔮 *Signals Generated:* {signals}\n"
+            
+            # Execution
+            if 'execution' in summary:
+                ex = summary['execution']
+                orders = ex.get('orders_submitted', 0)
+                fills = ex.get('fills_received', 0)
+                message += f"📈 *Execution:* {orders} orders, {fills} fills\n"
+            
+            # ML Live Validation Metrics (Enhanced Day 5 formatting)
+            if 'ml_live_metrics' in summary:
+                ml = summary['ml_live_metrics']
+                hit_rate = ml.get('hit_rate', 0.0)
+                auc = ml.get('auc', 0.0)
+                ic = ml.get('ic', 0.0)
+                
+                # Performance indicator with emoji
+                if hit_rate > 0.55:
+                    status_emoji = "🟢"
+                    status = "STRONG"
+                elif hit_rate > 0.50:
+                    status_emoji = "🟡" 
+                    status = "NEUTRAL"
+                else:
+                    status_emoji = "🔴"
+                    status = "WEAK"
+                
+                message += f"\n🤖 *ML Signal Validation*\n"
+                message += f"└ {status_emoji} *Status:* {status}\n"
+                message += f"└ 🎯 *Hit Rate:* {hit_rate:.1%}\n"
+                message += f"└ 📊 *AUC:* {auc:.3f}\n"
+                message += f"└ 📈 *IC:* {ic:.3f}\n"
+            
+            # Risk Management
+            if 'risk_management' in summary:
+                rm = summary['risk_management']
+                approved = rm.get('positions_approved', 0)
+                violations = rm.get('violations_count', 0)
+                violation_emoji = "🛡️" if violations == 0 else "⚠️"
+                message += f"\n{violation_emoji} *Risk:* {approved} approved, {violations} violations\n"
+            
+            # System Health
+            if 'system_health' in summary:
+                sh = summary['system_health']
+                execution_rate = sh.get('execution_rate', 0)
+                health_emoji = "💚" if execution_rate > 0.8 else "🟡" if execution_rate > 0.5 else "🔴"
+                message += f"{health_emoji} *Health:* {execution_rate:.1%} execution rate\n"
+            
+            message += f"\n🕐 *Generated:* {alert.timestamp.strftime('%H:%M:%S UTC')}"
+            
+            return self.send_message(message)
+            
+        except Exception as e:
+            logger.error(f"Failed to send ML-enhanced Telegram summary: {e}")
+            # Fallback to standard alert formatting
+            return self.send_message(f"📊 Daily Summary (fallback): {alert.message}")
     
     def send_retrain_success(self, validation_results: Dict[str, Any], 
                            version: str, factors_file: str) -> bool:
@@ -565,6 +709,90 @@ class TelegramAlerter:
             
         except Exception as e:
             logger.error(f"Failed to send validation failure notification: {e}")
+            return False
+    
+    def send_weight_change(self, old_w: float, new_w: float, 
+                          sharpe_ml: float, sharpe_base: float, 
+                          adjustment_rule: str, dry_run: bool = False) -> bool:
+        """
+        Send ML weight change notification with formatted message.
+        
+        Args:
+            old_w: Previous ML weight
+            new_w: New ML weight  
+            sharpe_ml: ML strategy Sharpe ratio
+            sharpe_base: Baseline strategy Sharpe ratio
+            adjustment_rule: Rule that triggered the change
+            dry_run: If True, only log the message instead of sending
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            import os
+            import re
+            import subprocess
+            from datetime import datetime
+            
+            # Check for dry-run override
+            env_dry_run = os.getenv('TELEGRAM_DRY_RUN', 'false').lower() == 'true'
+            is_dry_run = dry_run or env_dry_run
+            
+            # Calculate delta
+            delta_sharpe = sharpe_ml - sharpe_base
+            
+            # Determine direction emoji
+            if new_w > old_w:
+                direction_emoji = "↗️"
+                direction = "increased"
+            elif new_w < old_w:
+                direction_emoji = "↘️" 
+                direction = "decreased"
+            else:
+                direction_emoji = "➡️"
+                direction = "unchanged"
+            
+            # Get Git commit hash for traceability
+            try:
+                git_hash = subprocess.check_output(
+                    ["git", "rev-parse", "--short", "HEAD"], 
+                    cwd="/Users/binwspacerace/PycharmProjects/Mech-Exo",
+                    stderr=subprocess.DEVNULL
+                ).decode().strip()
+                git_info = f" \\(commit `{git_hash}`\\)"
+            except:
+                git_info = ""
+            
+            # Build Markdown V2 message with proper escaping
+            time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S').replace('-', '\\-')
+            message_parts = [
+                "⚖️ *ML Weight Auto\\-Adjusted*",
+                "",
+                f"• *Weight*: {old_w:.2f} {direction_emoji} {new_w:.2f}",
+                f"• *Δ Sharpe*: {delta_sharpe:+.3f} \\({sharpe_ml:.3f} vs {sharpe_base:.3f}\\)",
+                f"• *Rule*: `{self.escape_markdown(adjustment_rule)}`",
+                f"• *Time*: {time_str}{git_info}"
+            ]
+            
+            message = "\n".join(message_parts)
+            
+            if is_dry_run:
+                logger.info("TELEGRAM_DRY_RUN=true - logging weight change message")
+                logger.info(f"Dry-run weight change notification:\n{message}")
+                return True
+            
+            # Send actual message
+            success = self.send_message(message, parse_mode="MarkdownV2")
+            
+            if success:
+                logger.info(f"Weight change notification sent: {old_w:.2f} → {new_w:.2f}")
+            else:
+                logger.error("Failed to send weight change notification")
+                
+            return success
+            
+        except Exception as e:
+            logger.error(f"Failed to send weight change notification: {e}")
             return False
     
     def _get_emoji_for_level(self, level: AlertLevel) -> str:
@@ -676,6 +904,97 @@ class AlertManager:
         
         return True
     
+    def is_quiet_hours(self, current_time: datetime = None) -> bool:
+        """
+        Check if current time is within quiet hours (22:00-06:00 local)
+        
+        Args:
+            current_time: Time to check (defaults to now)
+            
+        Returns:
+            True if in quiet hours
+        """
+        if current_time is None:
+            current_time = datetime.now()
+        
+        # Get quiet hours configuration (default: 22:00-06:00)
+        quiet_config = self.config.get('quiet_hours', {})
+        start_hour = quiet_config.get('start_hour', 22)  # 22:00
+        end_hour = quiet_config.get('end_hour', 6)       # 06:00
+        
+        current_hour = current_time.hour
+        
+        if start_hour <= end_hour:
+            # Same day range (e.g., 22:00-23:59) - unlikely but supported
+            return start_hour <= current_hour <= end_hour
+        else:
+            # Crosses midnight (e.g., 22:00-06:00)
+            return current_hour >= start_hour or current_hour <= end_hour
+    
+    def send_alert_with_escalation(self, alert: Alert, 
+                                 channels: Optional[List[str]] = None,
+                                 respect_quiet_hours: bool = True,
+                                 force_send: bool = False) -> bool:
+        """
+        Send alert with escalation and quiet hours support
+        
+        Args:
+            alert: Alert to send
+            channels: Target channels (None for all)
+            respect_quiet_hours: If True, suppress alerts during quiet hours
+            force_send: If True, override quiet hours for critical alerts
+            
+        Returns:
+            True if sent successfully
+        """
+        # Check quiet hours
+        if respect_quiet_hours and not force_send:
+            if self.is_quiet_hours():
+                # Only send critical system alerts during quiet hours
+                if alert.level != AlertLevel.CRITICAL or alert.alert_type not in [
+                    AlertType.SYSTEM_ERROR, AlertType.SYSTEM_ALERT
+                ]:
+                    logger.info(f"Alert suppressed due to quiet hours: {alert.title}")
+                    return True  # Consider it "successful" - just deferred
+        
+        # For critical system alerts, force send to telegram even in quiet hours
+        if (alert.level == AlertLevel.CRITICAL and 
+            alert.alert_type in [AlertType.SYSTEM_ERROR, AlertType.SYSTEM_ALERT]):
+            force_channels = channels or ['telegram']
+            return self.send_alert(alert, channels=force_channels)
+        
+        return self.send_alert(alert, channels=channels)
+    
+    def get_escalation_channels(self, escalation_level: str) -> List[str]:
+        """
+        Get appropriate channels for escalation level
+        
+        Args:
+            escalation_level: 'telegram', 'email', or 'phone'
+            
+        Returns:
+            List of channel names to use
+        """
+        escalation_map = {
+            'telegram': ['telegram'],
+            'email': ['email'],
+            'phone': ['telegram', 'email']  # Phone not implemented, use both
+        }
+        
+        requested_channels = escalation_map.get(escalation_level, ['telegram'])
+        
+        # Filter to only available channels
+        available_channels = []
+        for channel in requested_channels:
+            if channel in self.alerters:
+                available_channels.append(channel)
+        
+        # Fallback to any available channel if none match
+        if not available_channels and self.alerters:
+            available_channels = [list(self.alerters.keys())[0]]
+        
+        return available_channels
+    
     # Convenience methods for common alerts
     
     def send_fill_alert(self, symbol: str, quantity: int, price: float, fill_id: str) -> bool:
@@ -761,6 +1080,35 @@ class AlertManager:
         )
         return self.send_alert(alert)
     
+    def send_ml_enhanced_daily_summary(self, summary_data: Dict[str, Any], 
+                                      ml_metrics: Optional[Dict[str, float]] = None) -> bool:
+        """
+        Send ML-enhanced daily summary with live validation metrics.
+        
+        Args:
+            summary_data: Standard daily summary data
+            ml_metrics: ML live metrics (hit_rate, auc, ic, sharpe_30d)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Auto-fetch ML metrics if not provided
+            if ml_metrics is None:
+                from ..reporting.query import get_latest_ml_live_metrics
+                ml_metrics = get_latest_ml_live_metrics()
+            
+            # Add ML metrics to summary data
+            enhanced_summary = summary_data.copy()
+            enhanced_summary['ml_live_metrics'] = ml_metrics
+            
+            return self.send_daily_summary_alert(enhanced_summary)
+            
+        except Exception as e:
+            logger.error(f"Failed to send ML-enhanced daily summary: {e}")
+            # Fallback to regular summary
+            return self.send_daily_summary_alert(summary_data)
+    
     def _format_daily_summary_message(self, summary: Dict[str, Any]) -> str:
         """Format daily summary message"""
         msg = f"Daily trading summary for {summary.get('date', 'today')}:" + "\n\n"
@@ -772,6 +1120,26 @@ class AlertManager:
         if 'execution' in summary:
             ex = summary['execution']
             msg += f"📈 Orders: {ex.get('orders_submitted', 0)} submitted, {ex.get('fills_received', 0)} filled" + "\n"
+        
+        # ML Live Validation Metrics (Day 5 enhancement)
+        if 'ml_live_metrics' in summary:
+            ml = summary['ml_live_metrics']
+            hit_rate = ml.get('hit_rate', 0.0)
+            auc = ml.get('auc', 0.0)
+            ic = ml.get('ic', 0.0)
+            
+            # Determine emoji based on hit rate performance
+            if hit_rate > 0.55:
+                ml_emoji = "🟢"
+                performance = "STRONG"
+            elif hit_rate > 0.50:
+                ml_emoji = "🟡"
+                performance = "NEUTRAL"
+            else:
+                ml_emoji = "🔴"
+                performance = "WEAK"
+            
+            msg += f"🤖 ML Signal: {ml_emoji} {performance} | Hit Rate: {hit_rate:.1%} | AUC: {auc:.3f} | IC: {ic:.3f}" + "\n"
         
         if 'risk_management' in summary:
             rm = summary['risk_management']

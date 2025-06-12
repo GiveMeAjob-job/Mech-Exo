@@ -1,0 +1,11 @@
+# Factor Scoring Configuration
+
+# ML Integration Weight (0.0 - 0.50)
+ml_weight: 0.30
+
+# Fundamental Factors (0-100 weight)
+fundamental:
+  pe_ratio:
+    weight: 15
+    direction: "lower_better"  # Lower P/E is better
+    normalize: true

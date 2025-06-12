@@ -101,6 +101,7 @@ class FillStore:
                     -- Metadata
                     strategy VARCHAR,
                     notes TEXT,
+                    tag VARCHAR DEFAULT 'base',  -- Allocation tag for canary A/B testing
                     
                     -- Derived fields
                     side VARCHAR AS (CASE WHEN quantity > 0 THEN 'BUY' ELSE 'SELL' END),
@@ -139,6 +140,7 @@ class FillStore:
                     strategy VARCHAR,
                     signal_strength DOUBLE DEFAULT 1.0,
                     notes TEXT,
+                    tag VARCHAR DEFAULT 'base',  -- Allocation tag for canary A/B testing
                     
                     -- Derived fields  
                     side VARCHAR AS (CASE WHEN quantity > 0 THEN 'BUY' ELSE 'SELL' END),
@@ -185,17 +187,57 @@ class FillStore:
                 )
             """)
 
+            # Run migrations to add tag column if missing
+            self._run_migrations()
+
             # Create indexes for performance
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_fills_symbol_date ON fills(symbol, filled_at)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_fills_strategy ON fills(strategy)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_fills_tag ON fills(tag)")  # New index for tag
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_symbol ON orders(symbol)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_tag ON orders(tag)")  # New index for tag
 
             logger.info("Database tables created successfully")
 
         except Exception as e:
             logger.error(f"Failed to create database tables: {e}")
             raise
+
+    def _run_migrations(self) -> None:
+        """Run database migrations to update schema"""
+        try:
+            # Migration 1: Add tag column to fills table if missing
+            try:
+                # Check if tag column exists in fills table
+                result = self.conn.execute("PRAGMA table_info(fills)").fetchall()
+                columns = [row[1] for row in result]
+                
+                if 'tag' not in columns:
+                    logger.info("Adding tag column to fills table")
+                    self.conn.execute("ALTER TABLE fills ADD COLUMN tag VARCHAR DEFAULT 'base'")
+                    
+            except Exception as e:
+                logger.warning(f"Migration for fills.tag column failed (may already exist): {e}")
+            
+            # Migration 2: Add tag column to orders table if missing
+            try:
+                # Check if tag column exists in orders table
+                result = self.conn.execute("PRAGMA table_info(orders)").fetchall()
+                columns = [row[1] for row in result]
+                
+                if 'tag' not in columns:
+                    logger.info("Adding tag column to orders table")
+                    self.conn.execute("ALTER TABLE orders ADD COLUMN tag VARCHAR DEFAULT 'base'")
+                    
+            except Exception as e:
+                logger.warning(f"Migration for orders.tag column failed (may already exist): {e}")
+                
+            logger.info("Database migrations completed")
+                
+        except Exception as e:
+            logger.error(f"Failed to run migrations: {e}")
+            # Don't raise - migrations are best effort
 
     def store_fill(self, fill: Fill) -> bool:
         """
@@ -218,15 +260,15 @@ class FillStore:
                     broker_order_id, broker_fill_id, exchange,
                     commission, fees, sec_fee,
                     reference_price, slippage_bps,
-                    strategy, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    strategy, notes, tag
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 fill.fill_id, fill.order_id, fill.symbol, fill.quantity, fill.price,
                 filled_at_utc,
                 fill.broker_order_id, fill.broker_fill_id, fill.exchange,
                 fill.commission, fill.fees, fill.sec_fee,
                 fill.reference_price, fill.slippage_bps,
-                fill.strategy, fill.notes
+                fill.strategy, fill.notes, fill.tag or 'base'
             ])
 
             logger.info(f"Stored fill: {fill.symbol} {fill.quantity} @ ${fill.price}")
@@ -260,14 +302,14 @@ class FillStore:
                 INSERT OR REPLACE INTO orders (
                     order_id, symbol, quantity, order_type,
                     limit_price, stop_price, status, broker_order_id,
-                    created_at, submitted_at, strategy, signal_strength, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, submitted_at, strategy, signal_strength, notes, tag
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 order.order_id, order.symbol, order.quantity, order.order_type.value,
                 order.limit_price, order.stop_price, order.status.value, order.broker_order_id,
                 created_at_utc,
                 submitted_at_utc,
-                order.strategy, order.signal_strength, order.notes
+                order.strategy, order.signal_strength, order.notes, order.tag or 'base'
             ])
 
             logger.debug(f"Stored order: {order.symbol} {order.quantity} - {order.status.value}")

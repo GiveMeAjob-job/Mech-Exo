@@ -146,10 +146,29 @@ class DataStorage:
             )
         """)
         
+        # Canary performance tracking table
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS canary_performance (
+                date DATE PRIMARY KEY,
+                canary_pnl DOUBLE,
+                canary_nav DOUBLE,
+                base_pnl DOUBLE,
+                base_nav DOUBLE,
+                canary_sharpe_30d DOUBLE,
+                base_sharpe_30d DOUBLE,
+                sharpe_diff DOUBLE,
+                canary_enabled BOOLEAN DEFAULT TRUE,
+                days_in_window INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Create indexes for better performance
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_ohlc_symbol_date ON ohlc_data(symbol, date)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_fundamental_symbol_date ON fundamental_data(symbol, fetch_date)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_news_symbol_published ON news_data(symbol, published_at)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_canary_performance_date ON canary_performance(date)")
         
     def store_ohlc_data(self, data: pd.DataFrame, update_mode: str = "replace") -> bool:
         """Store OHLC data"""

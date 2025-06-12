@@ -1,0 +1,62 @@
+# Allocation Configuration
+# Controls canary A/B testing, position sizing, and symbol filtering
+
+# Canary A/B Testing Configuration
+canary:
+  # Whether canary allocation is enabled
+  enabled: true
+  
+  # Percentage of each order allocated to canary (0.10 = 10%)
+  allocation: 0.10
+  
+  # Auto-disable thresholds with hysteresis protection
+  # Canary will be automatically disabled if performance falls below threshold
+  disable_rule:
+    sharpe_low: 0.0              # Threshold for underperformance (Sharpe < 0)
+    confirm_days: 2              # Consecutive breach days required (hysteresis)
+    max_dd_pct: 2.0             # Alternative: disable if Max DD > 2%
+    min_observations: 21         # Minimum days of data required for reliable decision
+  
+  # Alert configuration for auto-disable
+  alert_channels:
+    - telegram
+    - slack
+
+# Symbol Filtering and Greylist
+symbol_filtering:
+  # Greylist - symbols to exclude from trading
+  # These symbols will be blocked at the order router level
+  graylist_symbols:
+    - GME    # GameStop Corp - High volatility, meme stock
+    - AMC    # AMC Entertainment - Meme stock volatility
+  
+  # Emergency override settings
+  emergency_overrides:
+    # Allow emergency trades even for greylisted symbols
+    # Requires explicit override flag in order metadata
+    graylist_override_enabled: true
+    override_contact: "ops@mech-exo.com"
+  
+  # Hot-reload configuration
+  hot_reload:
+    enabled: true
+    check_interval_seconds: 600  # Check for file changes every 10 minutes
+    last_reload: null
+
+# Position Sizing (for future use)
+position_sizing:
+  default_position_size_pct: 2.0  # Default position size as % of portfolio
+  max_position_size_pct: 5.0      # Maximum position size as % of portfolio
+  min_position_size_usd: 1000     # Minimum position size in USD
+
+# Metadata
+created_at: "2025-01-11T00:00:00Z"
+updated_at: "2024-12-06T12:00:00Z"
+version: "1.1.0"
+
+# Change history for audit trail
+change_history:
+  - action: "add_greylist"
+    timestamp: "2024-12-06T12:00:00Z"
+    user: "capital-guard-system"
+    changes: "Added greylist mechanism with GME, AMC restrictions"

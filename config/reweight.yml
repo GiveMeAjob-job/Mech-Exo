@@ -1,0 +1,30 @@
+# ML Weight Rebalancing Configuration
+
+# Telegram Notification Settings
+telegram_enabled: true
+telegram_disable_on_weekend: true
+
+# Weight Adjustment Parameters
+adjustment:
+  step_size: 0.05          # Default adjustment step
+  upper_limit: 0.50        # Maximum ML weight
+  lower_limit: 0.0         # Minimum ML weight
+  up_threshold: 0.10       # Sharpe advantage threshold for increase
+  down_threshold: -0.05    # Sharpe disadvantage threshold for decrease
+
+# Performance Metrics
+metrics:
+  lookback_days: 30        # Days to look back for Sharpe calculation
+  min_sharpe_samples: 20   # Minimum samples required for reliable Sharpe
+
+# Risk Controls
+risk:
+  max_adjustment_per_week: 0.10  # Maximum weight change per week
+  enable_volatility_check: true  # Check volatility before adjustments
+  max_volatility_threshold: 0.25 # Max allowed volatility for adjustments
+
+# Notification Preferences
+notifications:
+  include_git_hash: true         # Include Git commit hash in messages
+  send_dry_run_summary: false    # Send notifications for dry runs
+  rate_limit_minutes: 60         # Minimum time between notifications

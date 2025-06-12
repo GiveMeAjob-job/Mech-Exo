@@ -7,8 +7,10 @@
 [![Dashboard Health](https://github.com/anthropics/mech-exo/workflows/Dashboard%20Health%20Check/badge.svg)](https://github.com/anthropics/mech-exo/actions)
 [![Drift Export CI](https://github.com/anthropics/mech-exo/workflows/Drift%20Monitor%20&%20Export%20CI/badge.svg)](https://github.com/anthropics/mech-exo/actions)
 [![Decay CI](https://github.com/anthropics/mech-exo/workflows/Alpha%20Decay%20CI/badge.svg)](https://github.com/anthropics/mech-exo/actions)
+[![Optuna Smoke Test](https://github.com/anthropics/mech-exo/workflows/Optuna%20Smoke%20Test/badge.svg)](https://github.com/anthropics/mech-exo/actions)
+[![ML Weight CI](https://github.com/anthropics/mech-exo/workflows/ML%20Weight%20Smoke%20Test/badge.svg)](https://github.com/anthropics/mech-exo/actions)
 
-📚 **[Demo Notebook](notebooks/backtest_demo.ipynb)** | 🗂️ **[Project Roadmap](https://github.com/anthropics/mech-exo/projects)** | 📖 **[Prefect Deployment Guide](PREFECT_DEPLOYMENT.md)**
+📚 **[Demo Notebook](notebooks/backtest_demo.ipynb)** | 🗂️ **[Project Roadmap](https://github.com/anthropics/mech-exo/projects)** | 📖 **[Prefect Deployment Guide](PREFECT_DEPLOYMENT.md)** | 🔬 **[Hyperparameter Optimization Guide](docs/hyperopt.md)**
 
 A systematic trading system designed to provide consistent, risk-managed returns through factor-based idea generation, position sizing, and automated execution.
 
@@ -383,6 +385,99 @@ The execution engine tracks comprehensive performance metrics:
 - **Slippage tracking**: Basis points of price impact
 - **Commission costs**: Per-trade and daily totals
 - **Execution quality**: Fill rate, rejection rate, retry statistics
+
+### Canary Bucket Order Splitting (A/B Testing):
+
+The execution engine includes sophisticated order splitting for canary A/B testing, enabling safe ML experimentation with automated allocation management:
+
+#### **Core Splitting Logic:**
+```python
+# Order split: 90% base + 10% canary allocation
+original_order = 100 shares AAPL
+↓
+base_order = 90 shares AAPL (tag: "base")
+canary_order = 10 shares AAPL (tag: "ml_canary")
+```
+
+#### **Configuration (config/allocation.yml):**
+```yaml
+canary_enabled: true
+canary_allocation: 0.10  # 10% to canary bucket
+min_split_size: 5        # Minimum order size for splitting
+base_tag: "base"         # Base allocation tag
+canary_tag: "ml_canary"  # Canary allocation tag
+```
+
+#### **Key Features:**
+- **Automatic Splitting**: OrderRouter automatically splits orders ≥5 shares when canary is enabled
+- **Tag-based Tracking**: Separate P&L tracking for base vs canary allocations throughout fill pipeline
+- **Rounding Safety**: Fractional shares always round toward base allocation to avoid partial shares
+- **Small Order Handling**: Orders <5 shares go entirely to base allocation (prevents tiny canary orders)
+- **Sell Order Support**: Preserves negative quantities for sell orders (-100 → -90 base, -10 canary)
+- **Error Fallback**: Any splitting error defaults to 100% base allocation for safety
+
+#### **Database Schema Integration:**
+```sql
+-- Enhanced fills table with tag support
+CREATE TABLE fills (
+    -- ... existing fields ...
+    tag VARCHAR DEFAULT 'base',  -- Allocation tag for canary A/B testing
+    -- ... derived fields updated for tag-based calculations ...
+);
+
+-- Tag-based performance tracking
+CREATE TABLE canary_performance (
+    date DATE PRIMARY KEY,
+    canary_pnl DOUBLE,
+    canary_nav DOUBLE,
+    base_pnl DOUBLE,  
+    base_nav DOUBLE,
+    canary_sharpe_30d DOUBLE,
+    base_sharpe_30d DOUBLE,
+    sharpe_diff DOUBLE,
+    canary_enabled BOOLEAN
+);
+```
+
+#### **P&L and NAV Computation:**
+```python
+from mech_exo.reporting.pnl import compute_tag_based_nav, compute_daily_pnl
+
+# Separate NAV calculation by allocation tag
+nav_by_tag = compute_tag_based_nav()
+# Returns: {'base': 90000.0, 'ml_canary': 10000.0}
+
+# Daily P&L tracking by tag
+daily_pnl = compute_daily_pnl()
+# Returns: {'base': 500.0, 'ml_canary': 50.0}
+```
+
+#### **OrderRouter Integration:**
+The splitting logic is seamlessly integrated into the order routing workflow:
+
+1. **Order Validation**: Standard risk checks and order validation
+2. **Canary Check**: `_handle_canary_allocation()` determines if order should be split
+3. **Split Execution**: Creates separate base and canary orders with appropriate tags
+4. **Broker Routing**: Both orders routed to broker with retry logic via `_execute_orders_with_retry()`
+5. **Fill Tracking**: Fills inherit tags from parent orders for separate P&L tracking
+
+#### **Performance Monitoring:**
+- **Dashboard Integration**: Real-time allocation breakdown displayed in Risk tab
+- **Daily Reporting**: Automated `store_daily_performance()` captures daily metrics
+- **Rolling Sharpe**: 30-day Sharpe ratio calculation for performance comparison
+- **Auto-disable Logic**: Configurable thresholds to disable canary if underperforming
+
+#### **CI/CD Testing:**
+Comprehensive integration test validates end-to-end order splitting workflow:
+```bash
+# .github/workflows/order_split_smoke.yml
+✅ Tests 100-share order → 90 base + 10 canary fills
+✅ Validates database tag storage and retrieval  
+✅ Checks canary_performance table updates
+✅ Verifies edge cases and error handling
+```
+
+The canary bucket system enables safe experimentation with ML-enhanced strategies while maintaining portfolio stability through controlled allocation limits and comprehensive monitoring.
 
 ### Error Handling & Recovery:
 - **Retry Logic**: Configurable retry on gateway errors and timeouts
@@ -1784,6 +1879,481 @@ ORDER BY sharpe_ratio DESC;
 
 The Optuna integration provides systematic factor weight optimization with proper constraint handling, enabling data-driven strategy refinement while maintaining risk controls and operational efficiency.
 
+## ✅ Phase P8 Week 3 Day 5: Optuna Monitor Dashboard & CI Testing (COMPLETED)
+
+### Features Implemented:
+
+#### **Real-time Optuna Monitor Dashboard Tab:**
+- **Sharpe vs. Trial Chart**: Interactive line chart with best trial highlighting and color-coded performance
+- **Parameter Importance Analysis**: Horizontal bar chart showing factor weight significance
+- **Study Summary Statistics**: Total trials, best/average Sharpe, constraint satisfaction rates
+- **Recent Trials Table**: Latest optimization results with status indicators
+- **External Dashboard Link**: One-click access to Optuna's native dashboard UI
+- **Auto-refresh**: 30-minute intervals for real-time monitoring
+
+#### **Dashboard Integration:**
+```bash
+# Launch dashboard with Optuna Monitor tab
+exo dash --port 8050
+
+# Navigate to: http://localhost:8050
+# Select: 🔬 Optuna Monitor tab
+```
+
+#### **Key Monitoring Features:**
+- **Study Selection**: Dropdown to filter between optimization studies
+- **Trial Progress**: Real-time visualization of Sharpe ratio improvements
+- **Status Badges**: Color-coded indicators (Active/No Data/Error states)
+- **Performance Metrics**: Best Sharpe, average performance, constraint violations
+- **Duration Tracking**: Trial execution times and optimization efficiency
+
+#### **CI/CD Smoke Testing:**
+```yaml
+# .github/workflows/optuna_smoke.yml
+name: Optuna Smoke Test
+- Runs 5-trial optimization in <3 minutes
+- Validates YAML export structure and factor count
+- Tests multi-Python version compatibility (3.9, 3.11)
+- Uploads optimization artifacts for manual inspection
+- Verifies end-to-end optimization pipeline functionality
+```
+
+#### **Backend Query Architecture:**
+```python
+from mech_exo.reporting.query import get_optuna_results
+
+# Retrieve latest optimization trials
+trials_df = get_optuna_results(limit=200)
+print(f"Found {len(trials_df)} trials with columns: {trials_df.columns.tolist()}")
+
+# Auto-derived metrics: trial_duration_min, constraint_status
+# Proper sorting and data type handling for dashboard display
+```
+
+#### **Unit Test Coverage:**
+- **Query Functions**: Database interaction and data processing
+- **Dashboard Callbacks**: Data filtering, chart generation, status updates  
+- **Chart Creation**: Plotly figure generation with error handling
+- **Integration Tests**: End-to-end workflow with sample data
+- **Mock Data Testing**: Graceful handling of empty/error states
+
+### Monitoring Capabilities:
+
+#### **Trial Visualization:**
+![Optuna Monitor Dashboard](docs/img/optuna_monitor_screenshot.png)
+
+**Dashboard Features:**
+- **Real-time Sharpe progression** with best trial highlighting
+- **Color-coded performance** using RdYlGn scale for immediate visual feedback  
+- **Parameter importance** showing which factors drive optimization success
+- **Study management** with dropdown filtering and external dashboard access
+- **Constraint monitoring** with satisfaction rates and violation tracking
+
+#### **Performance Tracking:**
+```
+📊 Study Summary Example:
+┌─────────────────────┬──────────────┐
+│ Total Trials        │ 150          │
+│ Best Sharpe        │ 1.2847       │
+│ Avg Sharpe         │ 0.4521       │
+│ Constraints OK     │ 89/150       │
+│ Avg Duration       │ 2.3min       │
+└─────────────────────┴──────────────┘
+
+🔬 Recent Trials:
+Trial | Sharpe | Max DD | Constraints | Duration
+------|--------|--------|-------------|----------
+ 148  | 1.28   | 8.2%   | ✅ Satisfied | 2.1min
+ 149  | 0.95   | 12.1%  | ❌ Violated  | 2.4min  
+ 150  | 1.12   | 9.8%   | ✅ Satisfied | 2.0min
+```
+
+#### **External Tool Integration:**
+```bash
+# Launch Optuna's native dashboard (parallel to Mech-Exo dashboard)
+optuna-dashboard --storage sqlite:///studies/factor_opt.db --port 8080
+
+# Access via dashboard button or direct URL
+open http://localhost:8080
+```
+
+### CI/CD Integration:
+
+#### **Automated Pipeline Testing:**
+- **Multi-Python Testing**: Validates compatibility across Python 3.9 and 3.11
+- **Speed Guard**: 3-minute timeout ensures CI efficiency
+- **Artifact Preservation**: YAML exports and study databases uploaded for inspection
+- **Export Validation**: Verifies factor count, metadata completeness, and structure
+- **Graceful Failure Handling**: Tests continue even with missing dependencies
+
+#### **Usage Commands:**
+```bash
+# Manual Optuna optimization
+exo optuna-run --n-trials 50 --n-jobs 4 --stage
+
+# View results in dashboard  
+exo dash --port 8050
+# Navigate to 🔬 Optuna Monitor tab
+
+# Access external Optuna dashboard
+optuna-dashboard --storage sqlite:///studies/factor_opt.db --port 8080
+
+# Export optimization history
+exo export --table optuna_trials --range last30d --fmt csv
+```
+
+The Optuna Monitor provides comprehensive real-time visibility into factor weight optimization, enabling data-driven parameter tuning with immediate visual feedback and robust CI/CD validation.
+
+## ✅ Phase P8 Week 4: ML Factor Lab (COMPLETED)
+
+### Features Implemented:
+- **ML Training Pipeline**: LightGBM/XGBoost with hyperparameter optimization and time-series cross-validation
+- **Feature Engineering**: 20+ features including price lags, fundamental ratios, and technical indicators  
+- **SHAP Analysis**: Interactive HTML reports with feature importance and contribution analysis
+- **ML Inference CLI**: Production-ready prediction system with automated model loading
+- **IdeaScorer Integration**: ML-enhanced scoring with configurable weight blending (30% ML default)
+- **Daily Prefect Flow**: Automated ML inference pipeline with database storage
+- **🤖 ML Signal Dashboard**: Real-time ML performance monitoring with equity curves and prediction accuracy
+- **CI/CD Pipeline**: Complete ML smoke testing in under 6 minutes with artifact uploads
+
+---
+
+## ✅ Phase P9 Week 3: Canary A/B Testing & Auto-Disable (COMPLETED)
+
+### Features Implemented:
+
+#### **📊 Canary A/B Testing System:**
+- **Order Allocation Split**: Automatic 90% base + 10% canary allocation with tag-based tracking
+- **Daily Performance Flow**: Prefect-orchestrated canary performance tracker (23:30 UTC daily)
+- **Rolling Sharpe Calculation**: 30-day performance comparison with statistical significance testing
+- **Auto-Disable Logic**: Automated canary shutdown when Sharpe < 0.0 for 30+ days with hysteresis protection
+- **Telegram Alerts**: Real-time notifications for auto-disable events with performance metrics
+
+#### **🧪 A/B Dashboard Tab:**
+![A/B Test Dashboard](docs/img/ab_test_dashboard.png)
+
+The **🧪 A/B Test** tab provides comprehensive canary monitoring:
+- **Equity Curves**: Interactive comparison of base vs canary NAV progression (180-day view)
+- **Sharpe Difference Chart**: Rolling 30d performance differential with color coding
+- **Status Badge**: Real-time canary state with 5 status levels (OFF, Warming Up, Outperforming, Neutral, Underperforming)
+- **Performance Metrics**: Current NAV, Total P&L, and Sharpe ratios for both allocations
+- **Recent Data Table**: Last 10 trading days with daily performance breakdown
+- **Auto-refresh**: 24-hour intervals for fresh monitoring data
+
+#### **🤖 Auto-Disable Protection:**
+```yaml
+# config/allocation.yml - Hysteresis logic
+disable_rule:
+  sharpe_low: 0.0          # Threshold for underperformance
+  confirm_days: 2          # Consecutive breach days required
+  max_dd_pct: 2.0         # Alternative: Max drawdown trigger
+  min_observations: 21     # Minimum data points for reliable decision
+```
+
+#### **📱 Telegram Integration:**
+```
+🚨 Canary Auto-Disabled
+
+• Canary Sharpe (30d): -0.150
+• Threshold: 0.000
+• Observations: 35 days
+• Data quality: good
+
+All new orders will use base allocation only.
+Manual review and re-enable required.
+```
+
+#### **🏥 Health Endpoint Enhancement:**
+```bash
+curl -H "Accept: application/json" http://localhost:8050/healthz
+
+# Response now includes:
+{
+  "status": "operational",
+  "canary_sharpe_30d": 0.025,
+  "canary_enabled": true,
+  "canary_allocation_pct": 10.0,
+  "auto_disable_action": "none_needed"
+}
+```
+
+#### **🔄 CI/CD Smoke Testing:**
+- **Automated A/B Testing**: Complete CI workflow with 5-day synthetic fill generation
+- **Auto-disable Simulation**: Tests canary enable/disable logic with health endpoint validation
+- **Fixture Data**: Base + canary tagged fills for comprehensive P&L calculation testing
+- **Dashboard Health**: Validates A/B tab registration and chart rendering
+- **Artifact Upload**: Performance databases and test reports preserved for inspection
+
+### Key Benefits:
+- **Risk Management**: Limited 10% canary allocation caps ML strategy exposure
+- **Automated Protection**: Auto-disable prevents prolonged underperformance
+- **Statistical Rigor**: 30-day Sharpe comparison with hysteresis prevents false positives
+- **Real-time Monitoring**: Dashboard provides immediate visual feedback on canary performance
+- **Audit Trail**: Complete database tracking of allocation decisions and performance metrics
+
+### Documentation:
+- **[Comprehensive Canary Guide](docs/canary.md)**: Complete A/B testing documentation with setup, operations, and troubleshooting
+- **Flow Diagrams**: Visual representation of order splitting, P&L calculation, and auto-disable logic
+- **Configuration Examples**: Sample YAML files for allocation management and alert setup
+- **FAQ & Troubleshooting**: Common issues and solutions for canary A/B testing operations
+
+The canary A/B testing system enables safe ML strategy experimentation with automated risk management, ensuring portfolio stability while validating ML enhancements through rigorous statistical comparison.
+
+### Quick Start Commands:
+
+```bash
+# Install ML dependencies
+pip install lightgbm scikit-learn scipy shap
+
+# Build features and train model
+exo ml-features --start 2022-01-01 --end 2025-01-01
+exo ml-train --algo lightgbm --lookback 3y --cv 5
+
+# Generate ML predictions
+exo ml-predict --model models/lgbm_20250609_160807.txt --date today --symbols SPY QQQ IWM
+
+# ML-enhanced idea scoring (blends 30% ML + 70% traditional)
+exo score --use-ml --symbols AAPL MSFT GOOGL --output ml_enhanced_scores.csv
+
+# View ML Signal dashboard tab
+exo dash --port 8050
+# Navigate to: 🤖 ML Signal tab
+```
+
+### ML Signal Dashboard:
+
+![ML Signal Dashboard](docs/img/ml_signal_screenshot.png)
+
+The **🤖 ML Signal** tab provides comprehensive ML performance monitoring:
+
+#### **Key Features:**
+- **ML Alpha Tracking**: Real-time comparison of ML-weighted vs baseline portfolio performance
+- **Prediction Accuracy Matrix**: Confusion matrix showing ML prediction hit rates across quintiles
+- **Equity Curve Visualization**: Interactive charts comparing ML-weighted, baseline, and S&P 500 performance
+- **Today's ML Predictions**: Live table of current ML scores with ranking and algorithm details
+- **Auto-refresh**: Hourly updates ensure fresh data for intraday monitoring
+
+#### **Performance Metrics:**
+```
+📊 ML Dashboard Summary:
+┌─────────────────────┬──────────────┐
+│ ML Alpha           │ +2.3%        │
+│ Prediction Accuracy│ 64.2%        │ 
+│ ML Weight Used     │ 30%          │
+│ Active Predictions │ 247          │
+│ Algorithm          │ LightGBM     │
+└─────────────────────┴──────────────┘
+
+🎯 Top ML Predictions Today:
+Rank | Symbol | ML Score | Algorithm
+-----|--------|----------|----------
+  1  | AAPL   | 0.8945   | LightGBM
+  2  | MSFT   | 0.8721   | LightGBM  
+  3  | GOOGL  | 0.8456   | LightGBM
+```
+
+### ML Training & Feature Engineering:
+
+#### **Feature Matrix (20+ Features):**
+- **Price Features**: Returns (1d, 5d, 20d), volatility (20d), price momentum
+- **Fundamental Features**: P/E ratio, ROE, revenue growth, earnings growth, debt ratio
+- **Technical Features**: RSI (14), MACD, Bollinger position, volume ratio
+- **Quality Features**: Earnings quality, financial health scores
+
+#### **Model Training:**
+```bash
+# Train LightGBM with 5-fold CV and 30 hyperparameter trials
+exo ml-train --algo lightgbm --cv 5 --n-iter 30 --verbose
+
+# Example output:
+🚀 Starting ML model training...
+INFO: Training data prepared: 1,250 samples, 22 features
+INFO: Best CV AUC: 0.7234
+✅ Model meets AUC threshold (≥0.60)
+📊 Mean AUC: 0.7123 ± 0.0234
+```
+
+#### **SHAP Analysis:**
+```bash
+# Generate SHAP report after training
+# Automatically creates: reports/shap_analysis_YYYYMMDD_HHMMSS.html
+```
+
+### ML-Enhanced Idea Scoring:
+
+#### **Blending Formula:**
+```python
+final_score = (1 - ml_weight) * traditional_rank + ml_weight * ml_rank
+# Default: 70% traditional factors + 30% ML predictions
+```
+
+#### **Configuration (config/factors.yml):**
+```yaml
+# ML integration settings
+ml_weight: 0.3  # 30% ML weight
+
+# Traditional factor weights remain unchanged
+fundamental:
+  pe_ratio: {weight: 25, direction: lower_better}
+  return_on_equity: {weight: 20, direction: higher_better}
+```
+
+### Daily Automation:
+
+#### **ML Inference Flow (09:40 UTC Daily):**
+```python
+# 6-step automated pipeline
+@flow(name="ml-daily-inference")
+def ml_daily_inference_flow():
+    # 1. Load latest trained model
+    # 2. Build features for today
+    # 3. Generate ML predictions  
+    # 4. Store scores in database
+    # 5. Update idea scores with ML integration
+    # 6. Update performance curves for dashboard
+```
+
+#### **Database Integration:**
+```sql
+-- ML scores table
+CREATE TABLE ml_scores (
+    symbol VARCHAR,
+    ml_score FLOAT,
+    prediction_date DATE,
+    algorithm VARCHAR,
+    created_at TIMESTAMP,
+    PRIMARY KEY (symbol, prediction_date)
+);
+
+-- Performance curves for dashboard
+CREATE TABLE performance_curves (
+    date DATE PRIMARY KEY,
+    baseline_equity DOUBLE,
+    ml_weighted_equity DOUBLE,
+    sp500_equity DOUBLE,
+    ml_weight_used DOUBLE
+);
+```
+
+### CI/CD Testing:
+
+#### **ML Smoke Test (.github/workflows/ml_smoke.yml):**
+- **6-minute runtime**: Complete ML pipeline testing with speed optimization
+- **20-row fixture**: Minimal feature dataset for fast CI execution
+- **Model training**: 2-fold CV with 5 hyperparameter trials
+- **Prediction testing**: 10-symbol inference with CSV output validation
+- **Dashboard health**: Verifies ML Signal tab registration
+- **Artifact uploads**: Model files and prediction CSVs saved for inspection
+
+#### **Performance Characteristics:**
+- **Training Speed**: ~5 seconds for smoke test (2 folds, 5 trials)
+- **Inference Speed**: <5ms per symbol with feature alignment
+- **Memory Usage**: Optimized for 1k+ symbol batch processing
+- **Model Size**: LightGBM ~50KB, XGBoost ~200KB typical
+
+### Advanced Features:
+
+#### **Model Wrapper Architecture:**
+```python
+from mech_exo.ml.predict import ModelWrapper
+
+# Unified interface for both algorithms
+wrapper = ModelWrapper("models/lgbm_model.txt")  # Auto-detects LightGBM
+wrapper = ModelWrapper("models/xgb_model.json")  # Auto-detects XGBoost
+
+# Automatic feature alignment and missing value handling
+predictions = wrapper.predict(feature_df)
+```
+
+#### **Production Monitoring:**
+```bash
+# Check ML prediction performance
+curl -H "Accept: application/json" http://localhost:8050/healthz
+
+# Response includes ML status:
+{
+  "status": "operational",
+  "ml_signal": true,
+  "ml_predictions_today": 247,
+  "ml_alpha": 2.3
+}
+```
+
+The ML Factor Lab provides a complete machine learning enhancement to the systematic trading system, enabling data-driven alpha generation with comprehensive monitoring and automated workflows.
+
+## 🐳 Docker Deployment
+
+### Quick Start with Docker
+
+```bash
+# 1. Launch full dashboard stack
+docker compose up dash
+# Access dashboard: http://localhost:8050
+
+# 2. Launch ML-enhanced service with LightGBM/XGBoost
+docker compose --profile ml up ml
+# Access ML dashboard: http://localhost:8051
+
+# 3. Run Optuna optimization
+docker compose -f docker-compose.optuna.yml up
+# Runs 50 trials with 2 parallel jobs
+
+# 4. Start Optuna dashboard
+docker compose --profile optuna up optuna-dashboard
+# Access Optuna UI: http://localhost:8080
+```
+
+### One-Command Optimization
+
+```bash
+# Run custom optimization with convenient script
+./scripts/run_optuna_docker.sh --trials 100 --jobs 4 --dashboard
+
+# Clean up after optimization
+./scripts/run_optuna_docker.sh --cleanup
+```
+
+### Docker Services
+
+| Service | Purpose | Port | Command |
+|---------|---------|------|---------|
+| `dash` | Main dashboard | 8050 | `docker compose up dash` |
+| `ml` | ML-enhanced dashboard | 8051 | `docker compose --profile ml up ml` |
+| `optuna-runner` | Factor optimization | - | `docker compose -f docker-compose.optuna.yml up` |
+| `optuna-dashboard` | Optuna UI | 8080 | `docker compose --profile optuna up optuna-dashboard` |
+
+### ML Docker Image Features
+
+The `Dockerfile.ml` provides a specialized container with ML capabilities:
+
+```bash
+# Build ML-enhanced image
+docker build -f Dockerfile.ml -t mech-exo-ml .
+
+# Run with ML dependencies
+docker run -d -p 8051:8050 \
+  -v ./data:/app/data \
+  -v ./models:/app/models \
+  -v ./config:/app/config \
+  --env-file .env \
+  mech-exo-ml
+
+# Included ML libraries:
+# - LightGBM 4.3.0
+# - XGBoost 2.0.3  
+# - scikit-learn 1.4.0
+# - SHAP 0.44.1
+# - Optuna 3.5.0
+```
+
+### Resource Requirements
+
+- **Minimum**: 4GB RAM, 2 CPU cores
+- **Recommended**: 8GB RAM, 4 CPU cores
+- **Storage**: 2GB for databases and factor exports
+
+For detailed Docker setup and configuration, see the **[Hyperparameter Optimization Guide](docs/hyperopt.md)**.
+
 ## 🔮 Future Enhancements
 
 - Machine learning factor discovery
@@ -1794,7 +2364,106 @@ The Optuna integration provides systematic factor weight optimization with prope
 
 ---
 
-**Status**: All Phases P1-P8 Complete ✅  
-**Timeline**: ~8 phases completed in 4 weeks
+## ✅ Phase P9 Week 2: Adaptive ML Weight Adjustment (COMPLETED)
+
+### Features Implemented:
+- **Dynamic ML Weight Adjustment**: Automated ML influence adjustment based on real-time performance comparison
+- **Prefect Orchestration**: Weekly rebalancing flow with performance metric analysis and YAML configuration updates
+- **Telegram Notifications**: Real-time weight change alerts with performance delta and Git commit tracking
+- **CLI Testing Tools**: Interactive weight adjustment testing with dry-run capabilities and notification previews
+
+### Core Algorithm:
+```python
+# Weight adjustment logic
+if ml_sharpe - baseline_sharpe >= +0.10:
+    ml_weight = min(current_weight + 0.05, 0.50)  # Increase (cap 0.50)
+elif ml_sharpe - baseline_sharpe <= -0.05:
+    ml_weight = max(current_weight - 0.05, 0.0)   # Decrease (floor 0.0)
+else:
+    ml_weight = current_weight  # No change (within band)
+```
+
+### Environment Variables:
+```bash
+# Telegram Integration
+export TELEGRAM_BOT_TOKEN="your_bot_token"
+export TELEGRAM_CHAT_ID="your_chat_id"
+export TELEGRAM_DRY_RUN="true"  # For testing
+
+# Weight Adjustment
+export ML_REWEIGHT_DRY_RUN="true"  # Dry-run mode
+export GIT_AUTO_PUSH="true"        # Auto-commit changes
+```
+
+### CLI Usage:
+```bash
+# Test weight adjustment algorithm
+exo weight-adjust --baseline 1.00 --ml 1.15 --current 0.30 --notify --dry-run
+
+# Example output:
+⚖️ ML Weight Adjustment Test
+Baseline Sharpe: 1.000
+ML Sharpe:       1.150
+Current Weight:  0.300
+📊 Analysis Results:
+Sharpe Delta:    +0.150
+Adjustment Rule: ML_OUTPERFORM_BASELINE
+New Weight:      0.350
+Change:          0.300 ↗️ 0.350
+
+📱 Testing Telegram Notification...
+✅ Test notification sent successfully
+
+📝 Example Telegram Message:
+   ⚖️ ML Weight Auto-Adjusted
+   • Weight: 0.30 ↗️ 0.35
+   • Δ Sharpe: +0.150 (1.150 vs 1.000)
+   • Rule: ML_OUTPERFORM_BASELINE
+   • Time: 2024-01-15 09:30:00 (commit abc123)
+```
+
+### Configuration Files:
+```yaml
+# config/reweight.yml
+telegram_enabled: true
+telegram_disable_on_weekend: true
+
+adjustment:
+  step_size: 0.05
+  upper_limit: 0.50
+  lower_limit: 0.0
+  up_threshold: 0.10
+  down_threshold: -0.05
+
+# config/factors.yml (auto-updated)
+ml_weight: 0.35  # Dynamically adjusted
+```
+
+### Prefect Flow Components:
+1. **fetch_sharpe_metrics**: Retrieves 30-day Sharpe ratios for baseline vs ML strategies
+2. **auto_adjust_ml_weight**: Applies adjustment algorithm and updates YAML configuration
+3. **notify_weight_change**: Sends Telegram alerts when weights change (weekdays only)
+4. **promote_weight_yaml**: Optional Git commit and push for audit trail
+
+### Weight History Tracking:
+```python
+from mech_exo.scoring.weight_utils import get_weight_history
+
+# View recent weight changes
+history = get_weight_history(days=30)
+print(history[['date', 'old_weight', 'new_weight', 'adjustment_rule', 'sharpe_diff']])
+
+#         date  old_weight  new_weight         adjustment_rule  sharpe_diff
+# 0 2024-01-15        0.30        0.35  ML_OUTPERFORM_BASELINE        0.150
+# 1 2024-01-08        0.35        0.30 ML_UNDERPERFORM_BASELINE       -0.080
+```
+
+The adaptive ML weight system ensures optimal ML influence based on live performance, automatically scaling ML contribution when it outperforms and reducing it when underperforming, with comprehensive audit trails and real-time notifications.
+
+---
+
+**Status**: Phase P9 Week 3 Complete ✅ (Canary A/B Testing & Auto-Disable)  
+**Current Phase**: Phase P9 Week 4 - Advanced ML Research & Multi-Asset Support  
+**Timeline**: 6 weeks completed, ML pipeline with canary A/B testing and adaptive weighting fully operational
 
 Built with Python 3.11+ | DuckDB | Prefect | Interactive Brokers API | QuantStats | Telegram Bot API

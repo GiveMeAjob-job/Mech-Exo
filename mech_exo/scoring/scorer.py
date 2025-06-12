@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class IdeaScorer(BaseScorer):
     """Main idea scoring and ranking system"""
     
-    def __init__(self, config_path: str = "config/factors.yml"):
+    def __init__(self, config_path: str = "config/factors.yml", use_ml: bool = False):
         # Load configuration
         config_manager = ConfigManager()
         self.factor_config = config_manager.get_factor_config()
@@ -40,6 +40,13 @@ class IdeaScorer(BaseScorer):
         # Market regime adjustments
         self.market_regime_config = self.factor_config.get('market_regime', {})
         self.sector_adjustments = self.factor_config.get('sector_adjustments', {})
+        
+        # ML integration settings
+        self.use_ml = use_ml
+        self.ml_weight = self.factor_config.get('ml_weight', 0.3)
+        self.ml_scores = None
+        
+        logger.info(f"IdeaScorer initialized with ML: {use_ml}, ML weight: {self.ml_weight}")
         
     def _initialize_factors(self):
         """Initialize factor models from configuration"""
@@ -58,7 +65,7 @@ class IdeaScorer(BaseScorer):
             
         logger.info(f"Initialized {len(self.factors)} factors")
     
-    def score(self, symbols: List[str], **kwargs) -> pd.DataFrame:
+    def score(self, symbols: List[str], ml_scores_file: Optional[str] = None, **kwargs) -> pd.DataFrame:
         """Score symbols and return ranked DataFrame"""
         try:
             logger.info(f"Scoring {len(symbols)} symbols")
@@ -77,6 +84,15 @@ class IdeaScorer(BaseScorer):
             
             # Apply adjustments
             adjusted_scores = self._apply_adjustments(combined_scores, data)
+            
+            # Load and integrate ML scores if enabled
+            if self.use_ml:
+                ml_scores = self._load_ml_scores(symbols, ml_scores_file)
+                if ml_scores is not None:
+                    self.ml_scores = ml_scores  # Store for use in ranking
+                    adjusted_scores = self._integrate_ml_scores(adjusted_scores, ml_scores, data)
+                else:
+                    logger.warning("ML scores not available - using traditional scores only")
             
             # Rank and format results
             ranked_results = self._rank_results(adjusted_scores, data)
@@ -265,6 +281,90 @@ class IdeaScorer(BaseScorer):
         
         return adjusted_scores
     
+    def _load_ml_scores(self, symbols: List[str], ml_scores_file: Optional[str] = None) -> Optional[pd.DataFrame]:
+        """Load ML scores from file or database"""
+        try:
+            if ml_scores_file and Path(ml_scores_file).exists():
+                # Load from specified file
+                logger.info(f"Loading ML scores from {ml_scores_file}")
+                ml_scores = pd.read_csv(ml_scores_file)
+                
+                if 'symbol' not in ml_scores.columns or 'ml_score' not in ml_scores.columns:
+                    logger.error("ML scores file must contain 'symbol' and 'ml_score' columns")
+                    return None
+                
+                # Filter to requested symbols
+                ml_scores = ml_scores[ml_scores['symbol'].isin(symbols)]
+                
+                logger.info(f"Loaded ML scores for {len(ml_scores)} symbols")
+                return ml_scores
+                
+            else:
+                # Try to load from database (latest ML scores)
+                try:
+                    query = """
+                    SELECT symbol, ml_score, prediction_date 
+                    FROM ml_scores 
+                    WHERE prediction_date = (SELECT MAX(prediction_date) FROM ml_scores)
+                    AND symbol IN ({})
+                    """.format(','.join([f"'{s}'" for s in symbols]))
+                    
+                    ml_scores = self.storage.execute_query(query)
+                    
+                    if not ml_scores.empty:
+                        logger.info(f"Loaded ML scores from database for {len(ml_scores)} symbols")
+                        return ml_scores
+                    else:
+                        logger.warning("No ML scores found in database")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to load ML scores from database: {e}")
+                
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to load ML scores: {e}")
+            return None
+    
+    def _integrate_ml_scores(self, traditional_scores: pd.Series, 
+                           ml_scores: pd.DataFrame, data: pd.DataFrame) -> pd.Series:
+        """Integrate ML scores with traditional factor scores"""
+        logger.info(f"Integrating ML scores with weight {self.ml_weight}")
+        
+        # Create traditional ranks (lower rank = better)
+        traditional_ranks = traditional_scores.rank(ascending=False, method='min')
+        
+        # Create ML scores DataFrame aligned with data
+        ml_scores_aligned = pd.Series(index=data.index, dtype=float)
+        
+        for idx, row in data.iterrows():
+            symbol = row['symbol']
+            ml_row = ml_scores[ml_scores['symbol'] == symbol]
+            
+            if not ml_row.empty:
+                ml_scores_aligned.loc[idx] = ml_row['ml_score'].iloc[0]
+            else:
+                # Use median ML score for missing symbols
+                ml_scores_aligned.loc[idx] = ml_scores['ml_score'].median()
+        
+        # Convert ML scores to ranks (higher score = better, so ascending=False)
+        ml_ranks = ml_scores_aligned.rank(ascending=False, method='min')
+        
+        # Combine ranks using weighted average
+        # final_score = (1 - ml_weight) * traditional_rank + ml_weight * ml_rank
+        combined_ranks = (1 - self.ml_weight) * traditional_ranks + self.ml_weight * ml_ranks
+        
+        # Convert back to scores (lower rank = higher score)
+        max_rank = combined_ranks.max()
+        final_scores = max_rank - combined_ranks + 1
+        
+        # Normalize to 0-100 scale
+        final_scores = (final_scores - final_scores.min()) / (final_scores.max() - final_scores.min()) * 100
+        
+        logger.info(f"Combined traditional and ML scores successfully")
+        
+        return final_scores
+    
     def _rank_results(self, scores: pd.Series, data: pd.DataFrame) -> pd.DataFrame:
         """Rank results and format output"""
         # Create results DataFrame
@@ -275,12 +375,19 @@ class IdeaScorer(BaseScorer):
         results['rank'] = scores.rank(ascending=False, method='min')
         results['percentile'] = scores.rank(pct=True)
         
+        # Add ML-specific columns if ML is enabled
+        if self.use_ml and self.ml_scores is not None:
+            results['ml_rank'] = self.ml_scores.set_index('symbol')['ml_score'].rank(ascending=False, method='min')
+            results['final_score'] = scores  # This is already the combined score
+            results['ml_weight_used'] = self.ml_weight
+        
         # Sort by rank
         results = results.sort_values('rank')
         
         # Add scoring metadata
         results['scoring_date'] = datetime.now()
         results['total_factors'] = len(self.factors)
+        results['uses_ml'] = self.use_ml
         
         # Select and order key columns
         key_columns = [
@@ -288,6 +395,10 @@ class IdeaScorer(BaseScorer):
             'current_price', 'market_cap', 'pe_ratio', 'revenue_growth',
             'sector', 'scoring_date'
         ]
+        
+        # Add ML columns if applicable
+        if self.use_ml:
+            key_columns.extend(['ml_rank', 'final_score', 'ml_weight_used', 'uses_ml'])
         
         # Include only existing columns
         available_columns = [col for col in key_columns if col in results.columns]

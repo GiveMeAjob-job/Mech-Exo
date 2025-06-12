@@ -1,56 +1,44 @@
-# Alert configuration for Mech-Exo trading system
+# Alert Configuration
+# Manages notifications via Slack, Telegram, and Email
 
 # Minimum alert level to send (info, warning, error, critical)
-min_level: "info"
+min_level: info
 
 # Alert types to enable
 enabled_types:
-  - "fill"
-  - "order_reject" 
-  - "risk_violation"
-  - "system_error"
-  - "daily_summary"
+  - fill
+  - order_reject
+  - risk_violation
+  - system_error
+  - daily_summary
 
 # Slack configuration
 slack:
-  enabled: false  # Set to true and configure to enable
-  bot_token: "xoxb-your-bot-token"  # Slack Bot User OAuth Token
-  webhook_url: ""  # Alternative: Incoming Webhook URL
+  enabled: false
+  bot_token: ${SLACK_BOT_TOKEN}
+  webhook_url: ${SLACK_WEBHOOK_URL}
   default_channel: "#trading-alerts"
   username: "Mech-Exo Bot"
-  
-  # Channel routing by alert type (optional)
-  channel_routing:
-    fill: "#fills"
-    risk_violation: "#risk-alerts" 
-    system_error: "#system-alerts"
-    daily_summary: "#daily-reports"
 
-# Email configuration  
+# Email configuration
 email:
-  enabled: false  # Set to true and configure to enable
-  smtp_server: "smtp.gmail.com"
+  enabled: false
+  smtp_server: smtp.gmail.com
   smtp_port: 587
-  sender_email: "your-email@gmail.com"
-  sender_password: "your-app-password"  # Use app password for Gmail
+  sender_email: ${EMAIL_SENDER}
+  sender_password: ${EMAIL_PASSWORD}
   recipient_emails:
-    - "trader1@example.com"
-    - "trader2@example.com"
+    - ${EMAIL_RECIPIENT}
 
-# Alert frequency limits (optional)
-rate_limiting:
-  enabled: false
-  max_alerts_per_hour: 50
-  max_alerts_per_day: 500
-  
-# Alert escalation (optional)
-escalation:
-  enabled: false
-  critical_channels: ["email"]  # Always use email for critical alerts
-  error_delay_minutes: 15  # Escalate errors after 15 minutes
-  
-# Testing configuration
-test_mode:
-  enabled: false  # Set to true for testing
-  test_channel: "#testing"
-  test_email: "test@example.com"
+# Telegram configuration
+telegram:
+  enabled: true
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}
+  username: "Mech-Exo Bot"
+
+# Notes:
+# - Set environment variables for sensitive tokens
+# - For Telegram: Create bot with @BotFather, get chat_id from @userinfobot
+# - Use TELEGRAM_DRY_RUN=true for testing without actual sends
+EOF < /dev/null

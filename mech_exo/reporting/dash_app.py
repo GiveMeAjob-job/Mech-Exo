@@ -17,6 +17,10 @@ from .dash_layout.equity import create_equity_layout, register_equity_callbacks
 from .dash_layout.positions import create_positions_layout, register_positions_callbacks
 from .dash_layout.risk import create_risk_layout, register_risk_callbacks
 from .dash_layout.factor_health import create_factor_health_layout
+from .dash_layout.optuna_monitor import create_optuna_monitor_layout
+from .dash_layout.ml_signal import create_ml_signal_tab
+from .dash_layout.ab_test import create_ab_test_layout, register_ab_test_callbacks
+from .dash_layout.ops_overview import create_ops_overview_layout, register_ops_overview_callbacks
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +63,37 @@ def create_dash_app(flask_app: Optional[Flask] = None) -> dash.Dash:
                 
                 # Return JSON response for programmatic access
                 if request.headers.get('Accept', '').startswith('application/json'):
+                    # Get current ML weight for health endpoint
+                    try:
+                        from .query import get_current_ml_weight_info
+                        weight_info = get_current_ml_weight_info()
+                        ml_weight = weight_info['current_weight']
+                    except Exception as e:
+                        logger.warning(f"Failed to get ML weight for health endpoint: {e}")
+                        ml_weight = 0.30  # Default fallback
+                    
+                    # Get capital health status
+                    capital_ok = _get_capital_health_status()
+                    
+                    # Calculate ops_ok based on various health indicators
+                    ops_ok = (
+                        status == 'operational' and
+                        risk_ok and
+                        capital_ok and
+                        health_data.get('fills_today', 0) >= 0  # Basic sanity check
+                    )
+                    
                     return {
                         'status': status,
                         'risk_ok': risk_ok,
+                        'capital_ok': capital_ok,  # Capital utilization health
                         'timestamp': health_data.get('last_updated'),
-                        'fills_today': health_data.get('fills_today', 0)
+                        'fills_today': health_data.get('fills_today', 0),
+                        'ml_signal': True,  # ML Signal tab is available
+                        'ml_weight': ml_weight,  # Current ML weight
+                        'canary_sharpe_30d': health_data.get('canary_sharpe_30d', 0.0),
+                        'canary_enabled': health_data.get('canary_enabled', True),
+                        'ops_ok': ops_ok  # Overall operational health indicator
                     }
                 
                 # Return simple text for curl/browser
@@ -170,6 +200,8 @@ def create_dash_app(flask_app: Optional[Flask] = None) -> dash.Dash:
     register_equity_callbacks()
     register_positions_callbacks()
     register_risk_callbacks()
+    register_ab_test_callbacks()
+    register_ops_overview_callbacks()
     
     logger.info("Dash application created successfully")
     return app
@@ -220,6 +252,26 @@ def create_layout():
                         label="🧬 Factor Health",
                         value="factor-health-tab",
                         className="nav-link"
+                    ),
+                    dcc.Tab(
+                        label="🔬 Optuna Monitor",
+                        value="optuna-monitor-tab",
+                        className="nav-link"
+                    ),
+                    dcc.Tab(
+                        label="🤖 ML Signal",
+                        value="ml-signal-tab",
+                        className="nav-link"
+                    ),
+                    dcc.Tab(
+                        label="🧪 A/B Test",
+                        value="ab-test-tab",
+                        className="nav-link"
+                    ),
+                    dcc.Tab(
+                        label="🔧 Operations",
+                        value="ops-overview-tab",
+                        className="nav-link"
                     )
                 ]
             )
@@ -244,6 +296,11 @@ def create_layout():
         dcc.Interval(
             id='interval-risk',
             interval=60*1000,  # Update every 60 seconds
+            n_intervals=0
+        ),
+        dcc.Interval(
+            id='interval-ops',
+            interval=5*60*1000,  # Update every 5 minutes
             n_intervals=0
         )
         
@@ -303,6 +360,14 @@ def register_callbacks(app: dash.Dash):
                 return create_risk_tab()
             elif active_tab == 'factor-health-tab':
                 return create_factor_health_tab()
+            elif active_tab == 'optuna-monitor-tab':
+                return create_optuna_monitor_tab()
+            elif active_tab == 'ml-signal-tab':
+                return create_ml_signal_tab()
+            elif active_tab == 'ab-test-tab':
+                return create_ab_test_tab()
+            elif active_tab == 'ops-overview-tab':
+                return create_ops_overview_tab()
             else:
                 return html.Div("Tab not found", className="text-danger")
                 
@@ -329,6 +394,21 @@ def create_risk_tab():
 def create_factor_health_tab():
     """Create factor health tab content"""
     return create_factor_health_layout()
+
+
+def create_optuna_monitor_tab():
+    """Create Optuna monitor tab content"""
+    return create_optuna_monitor_layout()
+
+
+def create_ab_test_tab():
+    """Create A/B test tab content"""
+    return create_ab_test_layout()
+
+
+def create_ops_overview_tab():
+    """Create operations overview tab content"""
+    return create_ops_overview_layout()
 
 
 def make_dash_app() -> dash.Dash:
@@ -368,11 +448,32 @@ def create_app():
             
             # Return JSON response for programmatic access
             if request.headers.get('Accept', '').startswith('application/json'):
+                # Get current ML weight for health endpoint
+                try:
+                    from .query import get_current_ml_weight_info
+                    weight_info = get_current_ml_weight_info()
+                    ml_weight = weight_info['current_weight']
+                except Exception as e:
+                    logger.warning(f"Failed to get ML weight for health endpoint: {e}")
+                    ml_weight = 0.30  # Default fallback
+                
+                # Calculate ops_ok based on various health indicators
+                ops_ok = (
+                    status == 'operational' and
+                    risk_ok and
+                    health_data.get('fills_today', 0) >= 0  # Basic sanity check
+                )
+                
                 return {
                     'status': status,
                     'risk_ok': risk_ok,
                     'timestamp': health_data.get('last_updated'),
-                    'fills_today': health_data.get('fills_today', 0)
+                    'fills_today': health_data.get('fills_today', 0),
+                    'ml_signal': True,  # ML Signal tab is available
+                    'ml_weight': ml_weight,  # Current ML weight
+                    'canary_sharpe_30d': health_data.get('canary_sharpe_30d', 0.0),
+                    'canary_enabled': health_data.get('canary_enabled', True),
+                    'ops_ok': ops_ok  # Overall operational health indicator
                 }
             
             # Return simple text for curl/browser
@@ -399,6 +500,50 @@ def create_app():
     # Create Dash app with the authenticated Flask server
     dash_app = create_dash_app(flask_app)
     return flask_app
+
+
+def _get_capital_health_status() -> bool:
+    """
+    Get capital health status from database
+    
+    Returns:
+        True if capital utilization is healthy, False otherwise
+    """
+    try:
+        from ..datasource.storage import DataStorage
+        
+        storage = DataStorage()
+        
+        # Check if capital_health table exists and get latest status
+        result = storage.conn.execute("""
+            SELECT capital_ok, last_check
+            FROM capital_health 
+            WHERE id = 1
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """).fetchone()
+        
+        storage.close()
+        
+        if result:
+            capital_ok, last_check = result
+            # Check if the status is recent (within last 25 hours)
+            from datetime import datetime, timedelta
+            if last_check:
+                try:
+                    check_time = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
+                    if datetime.now() - check_time < timedelta(hours=25):
+                        return bool(capital_ok)
+                except:
+                    pass
+        
+        # Default to True if no recent data (don't block trading)
+        return True
+        
+    except Exception as e:
+        logger.warning(f"Failed to get capital health status: {e}")
+        # Default to True if error (don't block trading due to monitoring issues)
+        return True
 
 
 if __name__ == '__main__':

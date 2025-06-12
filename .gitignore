@@ -57,6 +57,23 @@ config/api_keys_local.yml
 logs/
 *.log
 
+# Optuna studies and large files
+studies/*.db
+studies/*.log
+studies/*.sqlite
+studies/*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Large factor exports (keep recent ones only)
+factors/factors_opt_*.yml
+!factors/factors_opt_latest.yml
+
+# Export cache
+exports/
+exports_ci/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -64,3 +81,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 temp/
+
+# Docker volumes
+.docker_volumes/

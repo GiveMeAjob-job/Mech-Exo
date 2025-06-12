@@ -1,0 +1,314 @@
+name: Order Split Smoke Test
+
+on:
+  push:
+    branches: [ main, release/*, feature/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  order-split-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create test data directory
+      run: |
+        mkdir -p data
+        touch data/mech_exo.duckdb
+        touch data/execution.db
+        mkdir -p config
+        
+    - name: Create test allocation config
+      run: |
+        cat > config/allocation.yml << EOF
+        # Order splitting configuration for canary A/B testing
+        canary_enabled: true
+        canary_allocation: 0.10  # 10% to canary, 90% to base
+        
+        # Minimum order size for splitting
+        min_split_size: 5  # Don't split orders < 5 shares
+        
+        # Base allocation tag
+        base_tag: "base"
+        
+        # Canary allocation tag  
+        canary_tag: "ml_canary"
+        EOF
+    
+    - name: Create test risk limits config
+      run: |
+        cat > config/risk_limits.yml << EOF
+        # Risk limits for testing
+        max_position_size: 1000
+        max_daily_volume: 50000
+        max_sector_weight: 0.20
+        EOF
+    
+    - name: Test order splitting logic
+      env:
+        PYTHONPATH: /Users/binwspacerace/PycharmProjects/Mech-Exo
+      run: |
+        python -c "
+        from mech_exo.execution.allocation import split_order_quantity, is_canary_enabled
+        
+        # Test allocation configuration loading
+        enabled = is_canary_enabled()
+        print(f'✅ Canary allocation enabled: {enabled}')
+        assert enabled == True, 'Canary allocation should be enabled in test config'
+        
+        # Test order splitting for 100 shares
+        base_qty, canary_qty = split_order_quantity(100)
+        print(f'✅ Split 100 shares: Base={base_qty}, Canary={canary_qty}')
+        assert base_qty == 90, f'Expected base=90, got {base_qty}'
+        assert canary_qty == 10, f'Expected canary=10, got {canary_qty}'
+        assert base_qty + canary_qty == 100, 'Split quantities must sum to total'
+        
+        # Test edge cases
+        base_small, canary_small = split_order_quantity(3)
+        print(f'✅ Split 3 shares: Base={base_small}, Canary={canary_small}')
+        assert base_small + canary_small == 3, 'Small order split must sum correctly'
+        
+        print('✅ Order splitting logic validated')
+        "
+        
+    - name: Test StubBroker integration with order splitting
+      env:
+        PYTHONPATH: /Users/binwspacerace/PycharmProjects/Mech-Exo
+        EXO_MODE: test
+      run: |
+        python -c "
+        import asyncio
+        from datetime import datetime
+        from mech_exo.execution.models import Order, OrderType, Fill
+        from mech_exo.execution.order_router import OrderRouter
+        from mech_exo.execution.fill_store import FillStore
+        from mech_exo.datasource.storage import DataStorage
+        from tests.stubs.broker_stub import StubBroker
+        from mech_exo.risk.checker import RiskChecker
+        
+        async def test_order_execution():
+            print('🚀 Starting StubBroker integration test...')
+            
+            # Initialize components
+            broker = StubBroker()
+            await broker.connect()
+            assert broker.is_connected(), 'StubBroker should be connected'
+            print('✅ StubBroker connected')
+            
+            # Mock risk checker for testing
+            class MockRiskChecker:
+                def __init__(self):
+                    from mech_exo.risk.models import Portfolio
+                    self.portfolio = Portfolio()
+                    
+                def check_new_position(self, symbol, shares, price, sector='Unknown'):
+                    return {
+                        'pre_trade_analysis': {
+                            'recommendation': 'APPROVE',
+                            'violations': [],
+                            'warnings': []
+                        }
+                    }
+                    
+                def check(self):
+                    from mech_exo.risk.models import RiskStatus
+                    return {'status': RiskStatus.GREEN}
+            
+            risk_checker = MockRiskChecker()
+            
+            # Initialize OrderRouter
+            router = OrderRouter(broker=broker, risk_checker=risk_checker, config={
+                'max_retries': 1,
+                'retry_delay': 0.1,
+                'safety': {'daily_value_limit': 100000}
+            })
+            
+            # Create market buy order for 100 shares
+            order = Order(
+                symbol='AAPL',
+                quantity=100,
+                order_type=OrderType.MARKET,
+                strategy='test_canary_split'
+            )
+            print(f'✅ Created test order: {order.symbol} {order.quantity} shares')
+            
+            # Route order through system (should split into base + canary)
+            result = await router.route_order(order)
+            print(f'✅ Order routing result: {result.decision.value}')
+            assert result.decision.value == 'APPROVE', f'Order should be approved, got {result.decision.value}'
+            
+            # Wait for fills to be processed
+            await asyncio.sleep(0.5)
+            
+            # Check fills in database
+            fill_store = FillStore()
+            fills = fill_store.get_fills(symbol='AAPL')
+            print(f'✅ Retrieved {len(fills)} fills from database')
+            
+            # Verify we have exactly 2 fills (base + canary)
+            assert len(fills) == 2, f'Expected 2 fills (base + canary), got {len(fills)}'
+            
+            # Check fill quantities and tags
+            base_fill = None
+            canary_fill = None
+            
+            for fill in fills:
+                if fill.tag == 'base':
+                    base_fill = fill
+                elif fill.tag == 'ml_canary':
+                    canary_fill = fill
+                    
+            assert base_fill is not None, 'Missing base allocation fill'
+            assert canary_fill is not None, 'Missing canary allocation fill'
+            
+            print(f'✅ Base fill: {base_fill.quantity} shares, tag={base_fill.tag}')
+            print(f'✅ Canary fill: {canary_fill.quantity} shares, tag={canary_fill.tag}')
+            
+            # Verify quantities
+            assert base_fill.quantity == 90, f'Expected base fill = 90 shares, got {base_fill.quantity}'
+            assert canary_fill.quantity == 10, f'Expected canary fill = 10 shares, got {canary_fill.quantity}'
+            assert base_fill.quantity + canary_fill.quantity == 100, 'Fill quantities must sum to 100'
+            
+            fill_store.close()
+            
+            print('✅ Order split execution test PASSED')
+            
+            # Disconnect broker
+            await broker.disconnect()
+            
+            return True
+        
+        # Run async test
+        result = asyncio.run(test_order_execution())
+        assert result == True, 'Order execution test failed'
+        "
+        
+    - name: Test canary performance tracking
+      env:
+        PYTHONPATH: /Users/binwspacerace/PycharmProjects/Mech-Exo
+      run: |
+        python -c "
+        from datetime import date, datetime
+        from mech_exo.reporting.pnl import compute_tag_based_nav, store_daily_performance
+        from mech_exo.datasource.storage import DataStorage
+        
+        print('🧮 Testing canary performance tracking...')
+        
+        # Initialize DataStorage and create canary_performance table
+        storage = DataStorage()
+        
+        # Create canary_performance table if not exists
+        storage.conn.execute('''
+            CREATE TABLE IF NOT EXISTS canary_performance (
+                date DATE PRIMARY KEY,
+                canary_pnl DOUBLE DEFAULT 0.0,
+                canary_nav DOUBLE DEFAULT 0.0,
+                base_pnl DOUBLE DEFAULT 0.0,
+                base_nav DOUBLE DEFAULT 0.0,
+                canary_sharpe_30d DOUBLE DEFAULT 0.0,
+                base_sharpe_30d DOUBLE DEFAULT 0.0,
+                sharpe_diff DOUBLE DEFAULT 0.0,
+                canary_enabled BOOLEAN DEFAULT TRUE,
+                days_in_window INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        storage.close()
+        print('✅ Created canary_performance table')
+        
+        # Test NAV computation with fills from previous test
+        nav_by_tag = compute_tag_based_nav()
+        print(f'✅ Computed NAV by tag: {nav_by_tag}')
+        
+        # Verify we have both tags
+        assert 'base' in nav_by_tag, 'Missing base NAV computation'
+        assert 'ml_canary' in nav_by_tag, 'Missing canary NAV computation'
+        
+        # Verify canary allocation is ~10% of total
+        total_nav = nav_by_tag['base'] + nav_by_tag['ml_canary']
+        if total_nav > 0:
+            canary_pct = nav_by_tag['ml_canary'] / total_nav
+            print(f'✅ Canary allocation percentage: {canary_pct:.2%}')
+            # Allow some tolerance due to price differences
+            assert 0.08 <= canary_pct <= 0.12, f'Canary allocation should be ~10%, got {canary_pct:.2%}'
+        
+        # Test daily performance storage
+        success = store_daily_performance(date.today())
+        print(f'✅ Stored daily performance: {success}')
+        assert success == True, 'Daily performance storage should succeed'
+        
+        # Verify canary_performance table entry
+        storage = DataStorage()
+        result = storage.conn.execute(
+            'SELECT * FROM canary_performance WHERE date = ?',
+            [str(date.today())]
+        ).fetchone()
+        storage.close()
+        
+        assert result is not None, 'Should have canary_performance entry for today'
+        print(f'✅ Canary performance row created: Date={result[0]}, Base NAV={result[4]:.2f}, Canary NAV={result[2]:.2f}')
+        
+        print('✅ Canary performance tracking PASSED')
+        "
+        
+    - name: Test order split edge cases
+      env:
+        PYTHONPATH: /Users/binwspacerace/PycharmProjects/Mech-Exo
+      run: |
+        python -c "
+        from mech_exo.execution.allocation import split_order_quantity
+        
+        print('🔍 Testing order split edge cases...')
+        
+        # Test rounding behavior
+        test_cases = [
+            (23, 21, 2),    # 23 * 0.1 = 2.3 -> canary=2, base=21
+            (37, 34, 3),    # 37 * 0.1 = 3.7 -> canary=3, base=34  
+            (157, 142, 15), # 157 * 0.1 = 15.7 -> canary=15, base=142
+            (1, 1, 0),      # Very small order -> all to base
+            (5, 5, 0),      # Minimum split size -> can split but 5*0.1=0.5->0
+        ]
+        
+        for total_qty, expected_base, expected_canary in test_cases:
+            base_qty, canary_qty = split_order_quantity(total_qty)
+            
+            print(f'  {total_qty} shares -> Base: {base_qty}, Canary: {canary_qty}')
+            
+            assert base_qty == expected_base, f'{total_qty}: Expected base={expected_base}, got {base_qty}'
+            assert canary_qty == expected_canary, f'{total_qty}: Expected canary={expected_canary}, got {canary_qty}'
+            assert base_qty + canary_qty == total_qty, f'{total_qty}: Quantities must sum to total'
+        
+        print('✅ Order split edge cases validated')
+        "
+        
+    - name: Validate CI completion
+      run: |
+        echo '🎉 Order Split Smoke Test completed successfully!'
+        echo '✅ Order splitting logic validated'
+        echo '✅ StubBroker integration with 100 share order working'
+        echo '✅ Database fills verification: 90 base + 10 canary'
+        echo '✅ Canary performance table creation and NAV tracking'
+        echo '✅ Edge case handling validated'
+        echo ''
+        echo 'Phase P9 Week 3 Day 2 Step 5: Integration test / CI ✅ PASSED'
+        echo ''
+        echo '📊 Test Results Summary:'
+        echo '  • Order split: 100 shares → 90 base + 10 canary'
+        echo '  • Database: 2 fills with correct tags'
+        echo '  • Performance: canary_performance table updated'
+        echo '  • Allocation: ~10% canary allocation verified'
+        echo '  • Runtime: <4 minutes ✅'

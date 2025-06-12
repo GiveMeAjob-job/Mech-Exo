@@ -231,6 +231,130 @@ def interrupt_handler(study: optuna.Study, output_file: str) -> None:
         logger.error(f"Failed to save interrupted trial: {e}")
 
 
+def send_optimization_summary_with_chart(study: optuna.Study, 
+                                        export_info: dict,
+                                        chart_path: Optional[str] = None) -> bool:
+    """
+    Send Telegram summary with optional PNG chart attachment
+    
+    Args:
+        study: Completed Optuna study
+        export_info: Export information from optimization flow
+        chart_path: Optional path to PNG chart file
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Check for dry-run mode
+        if os.getenv('TELEGRAM_DRY_RUN', 'false').lower() == 'true':
+            logger.info("TELEGRAM_DRY_RUN=true - logging summary instead of sending")
+            
+            message = _create_summary_message(study, export_info)
+            logger.info(f"Dry-run Telegram summary:\n{message}")
+            
+            if chart_path and os.path.exists(chart_path):
+                logger.info(f"Would send chart: {chart_path} ({os.path.getsize(chart_path)} bytes)")
+            
+            return True
+        
+        from mech_exo.utils.alerts import TelegramAlerter
+        
+        # Get Telegram credentials
+        telegram_config = {
+            'bot_token': os.getenv('TELEGRAM_BOT_TOKEN'),
+            'chat_id': os.getenv('TELEGRAM_CHAT_ID')
+        }
+        
+        if not telegram_config['bot_token'] or not telegram_config['chat_id']:
+            logger.warning("Telegram credentials not available - skipping summary")
+            return False
+        
+        alerter = TelegramAlerter(telegram_config)
+        
+        # Send text summary
+        message = _create_summary_message(study, export_info)
+        success = alerter.send_message(message)
+        
+        if not success:
+            logger.error("Failed to send summary message")
+            return False
+        
+        # Send chart if available and < 1MB
+        if chart_path and os.path.exists(chart_path):
+            file_size_mb = os.path.getsize(chart_path) / (1024 * 1024)
+            
+            if file_size_mb < 1.0:  # Telegram limit enforcement
+                chart_success = alerter.send_document(
+                    chart_path,
+                    caption=f"📊 Optimization Progress Chart"
+                )
+                
+                if chart_success:
+                    logger.info(f"📊 Chart sent successfully: {chart_path}")
+                else:
+                    logger.warning(f"Failed to send chart: {chart_path}")
+            else:
+                logger.info(f"Chart too large ({file_size_mb:.2f}MB) - providing link instead")
+                # Could add a follow-up message with a link here
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to send optimization summary: {e}")
+        return False
+
+
+def _create_summary_message(study: optuna.Study, export_info: dict) -> str:
+    """Create formatted summary message for Telegram"""
+    
+    def escape_markdown_v2(text: str) -> str:
+        """Escape MarkdownV2 special characters"""
+        special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+        for char in special_chars:
+            text = text.replace(char, f'\\{char}')
+        return text
+    
+    # Get study metrics
+    best_trial = study.best_trial
+    total_trials = len(study.trials)
+    best_sharpe = study.best_value
+    
+    # Calculate completion time
+    if hasattr(study, '_creation_time') and hasattr(best_trial, 'datetime_complete'):
+        elapsed_time = best_trial.datetime_complete - study._creation_time
+        elapsed_minutes = elapsed_time.total_seconds() / 60
+    else:
+        elapsed_minutes = 0  # Fallback
+    
+    # Get constraints status
+    constraints_satisfied = best_trial.user_attrs.get('constraints_satisfied', False) if best_trial.user_attrs else False
+    violations = best_trial.user_attrs.get('constraint_violations', 0) if best_trial.user_attrs else 0
+    max_dd = best_trial.user_attrs.get('max_drawdown', 0) if best_trial.user_attrs else 0
+    
+    # Create message
+    message = f"🎯 *Optuna Optimization Complete*\n\n"
+    message += f"📊 *Study*: {escape_markdown_v2(study.study_name)}\n"
+    message += f"🔬 *Trials*: {total_trials}\n"
+    message += f"⏱️ *Duration*: {elapsed_minutes:.1f} minutes\n\n"
+    
+    message += f"📈 *Best Results*:\n"
+    message += f"• Sharpe Ratio: `{best_sharpe:.4f}`\n"
+    message += f"• Max Drawdown: {max_dd:.1%}\n"
+    message += f"• Violations: {violations}\n"
+    message += f"• Constraints: {'✅ Satisfied' if constraints_satisfied else '❌ Violated'}\n\n"
+    
+    # Add export info
+    if export_info:
+        yaml_filename = os.path.basename(export_info.get('yaml_path', 'N/A'))
+        message += f"📄 *Export*: `{escape_markdown_v2(yaml_filename)}`\n"
+        message += f"💾 *Size*: {export_info.get('file_size_mb', 0):.2f} MB\n\n"
+    
+    message += f"🚀 *Ready for deployment and validation*"
+    
+    return message
+
+
 if __name__ == "__main__":
     # Test the callback
     print("🧪 Testing OptunaDashboardCallback...")

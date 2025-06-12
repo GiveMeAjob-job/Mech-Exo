@@ -14,18 +14,25 @@ services:
       retries: 5
 
   dash:
-    build: .
+    build: 
+      context: .
+      args:
+        - ENABLE_OPTUNA_DASHBOARD=true
     ports:
       - "8050:8050"
+      - "8080:8080"  # Optuna Dashboard
     env_file: 
       - .env
     environment:
       - DASH_USER=${DASH_USER:-admin}
       - DASH_PASS=${DASH_PASS:-changeme}
       - PYTHONPATH=/app
+      - ENABLE_OPTUNA_DASHBOARD=true
     volumes:
       - ./data:/app/data
       - ./config:/app/config
+      - ./studies:/app/studies  # Optuna studies
+      - ./factors:/app/factors  # Factor exports
     depends_on:
       db:
         condition: service_healthy
@@ -36,6 +43,76 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
+    
+  # ML-enhanced service with LightGBM, XGBoost, and SHAP
+  ml:
+    build:
+      context: .
+      dockerfile: Dockerfile.ml
+    ports:
+      - "8051:8050"  # Dashboard on different port to avoid conflicts
+    env_file:
+      - .env
+    environment:
+      - DASH_USER=${DASH_USER:-admin}
+      - DASH_PASS=${DASH_PASS:-changeme}
+      - PYTHONPATH=/app
+      - ML_ENABLED=true
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./models:/app/models
+      - ./reports:/app/reports
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8050/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    profiles:
+      - ml
+    command: >
+      sh -c "
+        echo '🤖 Starting ML-enhanced Mech-Exo service...' &&
+        echo '   - LightGBM: $(python -c \"import lightgbm; print(lightgbm.__version__)\")' &&
+        echo '   - XGBoost: $(python -c \"import xgboost; print(xgboost.__version__)\")' &&
+        echo '   - SHAP: $(python -c \"import shap; print(shap.__version__)\")' &&
+        echo '   - Dashboard: http://localhost:8051' &&
+        python -m mech_exo.cli dashboard --host 0.0.0.0 --port 8050
+      "
+
+  # Standalone Optuna Dashboard service (alternative to embedded)
+  optuna-dashboard:
+    build: 
+      context: .
+      dockerfile: Dockerfile.optuna
+    ports:
+      - "8080:8080"
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - ./studies:/app/studies
+    command: >
+      sh -c "
+        echo '📊 Starting standalone Optuna Dashboard...' &&
+        optuna-dashboard 
+          --storage sqlite:///app/studies/factor_opt.db 
+          --host 0.0.0.0 
+          --port 8080
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    profiles:
+      - optuna
 
 networks:
   default:

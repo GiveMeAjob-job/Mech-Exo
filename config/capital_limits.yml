@@ -1,0 +1,56 @@
+# Capital Limits Configuration
+# Manages maximum capital allocation per account for production trading
+
+capital_limits:
+  # Production accounts with maximum allocation limits
+  accounts:
+    # Example: 
+    # DU12345678:  # IB Account ID
+    #   max_capital: 100000  # Maximum USD allocation
+    #   currency: USD
+    #   enabled: true
+    #   added_date: "2025-06-15"
+    #   notes: "Primary trading account - conservative start"
+  
+  # Global settings
+  global:
+    # Overall maximum across all accounts
+    total_max_capital: 500000
+    
+    # Default currency for new accounts
+    default_currency: USD
+    
+    # Safety margin (percentage of buying power to reserve)
+    safety_margin_pct: 10
+    
+    # Alert thresholds
+    alerts:
+      warning_threshold_pct: 80  # Alert when usage > 80%
+      critical_threshold_pct: 95  # Critical alert when usage > 95%
+    
+    # Monitoring frequency
+    check_frequency_minutes: 60  # Check every hour during market hours
+    
+# Capital utilization tracking
+utilization:
+  last_check: null
+  accounts: {}
+  # Will be populated with:
+  # DU12345678:
+  #   buying_power: 85000
+  #   used_capital: 65000
+  #   utilization_pct: 76.47
+  #   last_updated: "2025-06-15T14:30:00Z"
+  #   status: "ok"  # ok, warning, critical
+
+# Historical tracking
+history:
+  # Track capital limit changes
+  changes: []
+  # Will store:
+  # - timestamp: "2025-06-15T10:00:00Z"
+  #   action: "add_account"
+  #   account: "DU12345678"
+  #   old_limit: null
+  #   new_limit: 100000
+  #   user: "admin"

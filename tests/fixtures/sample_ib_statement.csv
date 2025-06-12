@@ -1,0 +1,20 @@
+Statement,Data,BrokerageAccount,U1234567,USD,2024-12-06,2024-12-06
+
+Account Information,Header,Field,Value
+Account Information,Data,Name,Mech-Exo Test Account
+Account Information,Data,Account ID,U1234567
+Account Information,Data,Base Currency,USD
+
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,C. Price,Proceeds,Comm/Fee,Basis,Realized P/L,MTM P/L,Code
+Trades,Data,Order,Stocks,USD,AAPL,2024-12-06 09:30:15,100,150.25,150.25,-15025.00,1.00,-15026.00,0,0,O
+Trades,Data,Order,Stocks,USD,MSFT,2024-12-06 10:15:42,-50,305.80,305.80,15290.00,1.50,15288.50,0,0,C
+Trades,Data,Order,Stocks,USD,TSLA,2024-12-06 11:22:18,25,280.40,280.40,-7010.00,0.75,-7010.75,0,0,O
+Trades,Data,Order,Stocks,USD,GOOGL,2024-12-06 14:45:33,-10,2850.60,2850.60,28506.00,2.00,28504.00,0,0,C
+Trades,Total,,,,,,,65,-,-5.25,-,0,0,
+
+Cash Report,Header,Currency,Total
+Cash Report,Data,USD,42757.75
+Cash Report,Total,,42757.75
+
+Portfolio Summary,Header,Field,Value
+Portfolio Summary,Data,Net Liquidating Value,67832.50

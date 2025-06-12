@@ -1,0 +1,109 @@
+# Factor Scoring Configuration
+
+# ML Integration Weight (0.0 - 0.50)
+ml_weight: 0.3
+
+# Fundamental Factors (0-100 weight)
+fundamental:
+  pe_ratio:
+    weight: 15
+    direction: "lower_better"  # Lower P/E is better
+    normalize: true
+
+  price_to_book:
+    weight: 10
+    direction: "lower_better"
+    normalize: true
+
+  debt_to_equity:
+    weight: 12
+    direction: "lower_better"
+    normalize: true
+
+  return_on_equity:
+    weight: 18
+    direction: "higher_better"
+    normalize: true
+
+  revenue_growth:
+    weight: 15
+    direction: "higher_better"
+    normalize: true
+
+  earnings_growth:
+    weight: 20
+    direction: "higher_better"
+    normalize: true
+
+# Technical Factors
+technical:
+  rsi_14:
+    weight: 8
+    direction: "mean_revert"  # Look for oversold/overbought
+    oversold_threshold: 30
+    overbought_threshold: 70
+
+  momentum_12_1:
+    weight: 12
+    direction: "higher_better"
+    normalize: true
+
+  volatility_ratio:
+    weight: 6
+    direction: "lower_better"
+    normalize: true
+
+  volume_trend:
+    weight: 5
+    direction: "higher_better"
+    normalize: true
+
+# Sentiment Factors
+sentiment:
+  analyst_rating:
+    weight: 10
+    direction: "higher_better"
+    normalize: true
+
+  news_sentiment:
+    weight: 8
+    direction: "higher_better"
+    normalize: true
+
+  social_sentiment:
+    weight: 5
+    direction: "higher_better"
+    normalize: true
+
+# Quality Factors
+quality:
+  earnings_quality:
+    weight: 12
+    direction: "higher_better"
+    normalize: true
+
+  balance_sheet_strength:
+    weight: 15
+    direction: "higher_better"
+    normalize: true
+
+# Market Environment Adjustments
+market_regime:
+  bull_market_multiplier: 1.2
+  bear_market_multiplier: 0.8
+  high_vol_penalty: -0.1
+  low_vol_bonus: 0.05
+
+# Sector Adjustments
+sector_adjustments:
+  technology: 1.1
+  healthcare: 1.0
+  financials: 0.9
+  energy: 0.95
+  utilities: 0.85
+  consumer_discretionary: 1.05
+  consumer_staples: 0.9
+  industrials: 1.0
+  materials: 0.95
+  real_estate: 0.9
+  communication_services: 1.0

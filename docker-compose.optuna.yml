@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  optuna-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.optuna
+      args:
+        - PYTHON_VERSION=3.11
+    container_name: mech-exo-optuna-runner
+    
+    # Resource limits for optimization workload
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 8G
+        reservations:
+          cpus: "1"
+          memory: 4G
+    
+    # Volume mounts for persistence
+    volumes:
+      - ./studies:/app/studies
+      - ./factors:/app/factors
+      - ./data:/app/data
+      - ./config:/app/config
+      
+    # Environment variables
+    environment:
+      - TELEGRAM_DRY_RUN=true
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      
+    # Default optimization command
+    command: >
+      sh -c "
+        echo '🔬 Starting Optuna optimization in Docker...' &&
+        python -m mech_exo.cli optuna-run 
+          --n-trials 50 
+          --n-jobs 2 
+          --study-name factor_weight_optimization 
+          --study-file studies/factor_opt.db 
+          --no-stage 
+          --notify-progress 
+          --progress-interval 5
+      "
+    
+    # Restart policy
+    restart: "no"
+    
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlite3; sqlite3.connect('studies/factor_opt.db').execute('SELECT 1').fetchone()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Optuna Dashboard service (optional sidecar)
+  optuna-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.optuna
+      args:
+        - PYTHON_VERSION=3.11
+    container_name: mech-exo-optuna-dashboard
+    
+    # Volume mounts for study access
+    volumes:
+      - ./studies:/app/studies
+      
+    # Environment
+    environment:
+      - PYTHONPATH=/app
+      
+    # Dashboard command
+    command: >
+      sh -c "
+        echo '📊 Starting Optuna Dashboard...' &&
+        optuna-dashboard 
+          --storage sqlite:///app/studies/factor_opt.db 
+          --host 0.0.0.0 
+          --port 8080
+      "
+    
+    # Port mapping
+    ports:
+      - "8080:8080"
+    
+    # Dependencies
+    depends_on:
+      - optuna-runner
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+# Named volumes for data persistence
+volumes:
+  optuna_studies:
+    driver: local
+  optuna_factors:
+    driver: local
+
+# Network configuration
+networks:
+  default:
+    name: mech-exo-optuna
+    driver: bridge

@@ -1,0 +1,176 @@
+name: ML Weight Smoke Test
+
+on:
+  push:
+    branches: [ main, release/*, feature/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  ml-weight-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create test data directory
+      run: |
+        mkdir -p data
+        touch data/mech_exo.duckdb
+        mkdir -p config
+        
+    - name: Create test factor config
+      run: |
+        cat > config/factors.yml << EOF
+        # Test ML weight configuration for CI
+        ml_weight: 0.35
+        
+        # Sample factor configuration
+        factors:
+          fundamental:
+            pe_ratio:
+              weight: 20
+              direction: lower_better
+            return_on_equity:
+              weight: 18
+              direction: higher_better
+          technical:
+            momentum_12_1:
+              weight: 12
+              direction: higher_better
+            rsi_14:
+              weight: 8
+              direction: mean_revert
+        EOF
+    
+    - name: Create test reweight config
+      run: |
+        cat > config/reweight.yml << EOF
+        telegram_enabled: false
+        telegram_disable_on_weekend: true
+        
+        adjustment:
+          step_size: 0.05
+          upper_limit: 0.50
+          lower_limit: 0.0
+          up_threshold: 0.10
+          down_threshold: -0.05
+        EOF
+    
+    - name: Test ML weight badge helper functions
+      env:
+        PYTHONPATH: /Users/binwspacerace/PycharmProjects/Mech-Exo
+      run: |
+        python -c "
+        from mech_exo.scoring.weight_utils import get_current_ml_weight
+        from mech_exo.reporting.query import get_current_ml_weight_info
+        
+        # Test weight retrieval
+        weight = get_current_ml_weight()
+        print(f'✅ Current ML weight: {weight}')
+        assert 0.0 <= weight <= 0.50, f'Invalid weight: {weight}'
+        
+        # Test badge info generation
+        info = get_current_ml_weight_info()
+        print(f'✅ Badge info: {info[\"weight_percentage\"]} ({info[\"badge_color\"]})')
+        assert 'weight_percentage' in info
+        assert 'badge_color' in info
+        assert 'tooltip_info' in info
+        
+        print('✅ All ML weight helper functions working')
+        "
+        
+    - name: Test weight adjustment CLI command
+      env:
+        PYTHONPATH: /Users/binwspacerace/PycharmProjects/Mech-Exo
+        TELEGRAM_DRY_RUN: true
+      run: |
+        python mech_exo/cli.py weight-adjust --baseline 1.00 --ml 1.15 --current 0.35 --dry-run
+        
+    - name: Test dashboard health endpoint with ML weight
+      env:
+        PYTHONPATH: /Users/binwspacerace/PycharmProjects/Mech-Exo
+        DASH_USER: test
+        DASH_PASS: test
+      run: |
+        python -c "
+        from mech_exo.reporting.dash_app import create_app
+        from unittest.mock import patch
+        import json
+        
+        # Create Flask app
+        app = create_app()
+        
+        # Test health endpoint JSON response
+        with app.test_client() as client:
+            with patch('mech_exo.reporting.query.get_health_data') as mock_health:
+                mock_health.return_value = {
+                    'system_status': 'operational',
+                    'risk_ok': True,
+                    'last_updated': '2025-06-10T12:00:00Z',
+                    'fills_today': 0
+                }
+                
+                # Test JSON response
+                response = client.get('/healthz', headers={'Accept': 'application/json'})
+                assert response.status_code == 200
+                
+                data = response.get_json()
+                assert 'ml_weight' in data, f'ml_weight missing from health response: {data}'
+                assert 0.0 <= data['ml_weight'] <= 0.50, f'Invalid ML weight in health response: {data[\"ml_weight\"]}'
+                
+                print(f'✅ Health endpoint ML weight: {data[\"ml_weight\"]}')
+                print(f'✅ Health endpoint response: {json.dumps(data, indent=2)}')
+        "
+        
+    - name: Test badge color logic
+      env:
+        PYTHONPATH: /Users/binwspacerace/PycharmProjects/Mech-Exo
+      run: |
+        python -c "
+        from mech_exo.reporting.query import get_current_ml_weight_info
+        
+        # Mock different weight values to test color logic
+        from unittest.mock import patch
+        
+        test_cases = [
+            (0.0, 'secondary'),   # Grey for 0
+            (0.04, 'secondary'),  # Grey for < 0.05
+            (0.05, 'warning'),    # Yellow for >= 0.05
+            (0.15, 'warning'),    # Yellow for 0.05-0.25
+            (0.24, 'warning'),    # Yellow for < 0.25
+            (0.25, 'success'),    # Green for >= 0.25
+            (0.35, 'success'),    # Green for > 0.25
+            (0.50, 'success'),    # Green for maximum
+        ]
+        
+        for weight, expected_color in test_cases:
+            with patch('mech_exo.scoring.weight_utils.get_current_ml_weight', return_value=weight):
+                info = get_current_ml_weight_info()
+                actual_color = info['badge_color']
+                assert actual_color == expected_color, f'Weight {weight}: expected {expected_color}, got {actual_color}'
+                print(f'✅ Weight {weight:.2f} -> {actual_color} badge')
+        
+        print('✅ Badge color logic validated')
+        "
+        
+    - name: Validate CI completion
+      run: |
+        echo '🎉 ML Weight Smoke Test completed successfully!'
+        echo '✅ All badge functions tested'
+        echo '✅ Health endpoint ML weight exposure verified'
+        echo '✅ Color coding logic validated'
+        echo '✅ CLI weight adjustment working'
+        echo ''
+        echo 'Phase P9 Week 2 Day 5 Step 3: CI Smoke-test ✅ PASSED'

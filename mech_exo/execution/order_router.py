@@ -12,12 +12,14 @@ from enum import Enum
 from typing import Any
 
 from ..risk import RiskChecker
+from ..utils.greylist import get_greylist_manager
 from ..utils.structured_logging import (
     ExecutionContext,
     ExecutionLogger,
     execution_timer,
     timed_execution,
 )
+from .allocation import split_order_quantity, is_canary_enabled
 from .broker_adapter import BrokerAdapter
 from .models import (
     ExecutionError,
@@ -200,6 +202,14 @@ class OrderRouter:
                     self._notify_routing_callbacks(result)
                     return result
 
+            # Step 2.5: Greylist symbol filtering
+            with execution_timer(self.execution_logger, "greylist_check", order_id=order.order_id):
+                greylist_result = self._check_greylist(order)
+                if greylist_result.decision == RoutingDecision.REJECT:
+                    self._log_routing_decision(order, greylist_result, "greylist_rejected")
+                    self._notify_routing_callbacks(greylist_result)
+                    return greylist_result
+
             # Step 3: Pre-trade risk checks
             with execution_timer(self.execution_logger, "risk_check", order_id=order.order_id):
                 routing_result = await self._pre_trade_risk_check(order)
@@ -249,9 +259,13 @@ class OrderRouter:
                     self._notify_routing_callbacks(safety_result)
                     return safety_result
 
-            # Step 6: Route to broker with retry logic
+            # Step 6: Check for canary allocation split
+            with execution_timer(self.execution_logger, "canary_allocation_check", order_id=order.order_id):
+                split_orders = self._handle_canary_allocation(final_order)
+            
+            # Step 7: Route to broker with retry logic (handle single or split orders)
             with execution_timer(self.execution_logger, "broker_execution", order_id=order.order_id):
-                execution_result = await self._execute_with_retry(final_order)
+                execution_result = await self._execute_orders_with_retry(split_orders)
 
             # Update routing result with execution outcome
             if execution_result["status"] == "SUBMITTED":
@@ -784,3 +798,266 @@ class OrderRouter:
                 "error": str(e),
                 "timestamp": datetime.now()
             }
+
+    def _handle_canary_allocation(self, order: Order) -> list[Order]:
+        """
+        Handle canary allocation by splitting order if enabled.
+        
+        Args:
+            order: Original order to potentially split
+            
+        Returns:
+            List of orders (1 if no split, 2 if split between base and canary)
+        """
+        try:
+            # Check if canary allocation is enabled
+            if not is_canary_enabled():
+                logger.debug(f"Canary allocation disabled, routing full order to base: {order.symbol}")
+                # Ensure base tag is set
+                order.tag = "base"
+                return [order]
+            
+            # Check minimum order size for splitting (avoid tiny canary orders)
+            min_split_size = 5  # Minimum 5 shares to enable split
+            if abs(order.quantity) < min_split_size:
+                logger.debug(f"Order too small for canary split ({order.quantity} < {min_split_size}), routing to base")
+                order.tag = "base"
+                return [order]
+            
+            # Split the order quantity
+            base_qty, canary_qty = split_order_quantity(abs(order.quantity))
+            
+            # Preserve original sign for buy/sell
+            if order.quantity < 0:  # Sell order
+                base_qty = -base_qty
+                canary_qty = -canary_qty
+            
+            logger.info(f"Splitting order {order.symbol}: Base={base_qty}, Canary={canary_qty}")
+            
+            # Create base order (copy original and update)
+            base_order = Order(
+                symbol=order.symbol,
+                quantity=base_qty,
+                order_type=order.order_type,
+                limit_price=order.limit_price,
+                stop_price=order.stop_price,
+                time_in_force=order.time_in_force,
+                strategy=order.strategy,
+                signal_strength=order.signal_strength,
+                notes=f"Base allocation from split order {order.order_id}",
+                tag="base"
+            )
+            
+            # Create canary order if quantity > 0
+            orders = [base_order]
+            
+            if canary_qty != 0:
+                canary_order = Order(
+                    symbol=order.symbol,
+                    quantity=canary_qty,
+                    order_type=order.order_type,
+                    limit_price=order.limit_price,
+                    stop_price=order.stop_price,
+                    time_in_force=order.time_in_force,
+                    strategy=order.strategy,
+                    signal_strength=order.signal_strength,
+                    notes=f"Canary allocation from split order {order.order_id}",
+                    tag="ml_canary"
+                )
+                orders.append(canary_order)
+            
+            self.execution_logger.order_event(
+                event_type="split_allocation",
+                order_id=order.order_id,
+                symbol=order.symbol,
+                message=f"Order split: Base {base_qty}, Canary {canary_qty}",
+                original_quantity=order.quantity,
+                base_quantity=base_qty,
+                canary_quantity=canary_qty,
+                orders_created=len(orders)
+            )
+            
+            return orders
+            
+        except Exception as e:
+            logger.error(f"Failed to handle canary allocation for {order.symbol}: {e}")
+            # Fallback to base allocation
+            order.tag = "base"
+            return [order]
+
+    async def _execute_orders_with_retry(self, orders: list[Order]) -> dict[str, Any]:
+        """
+        Execute a list of orders with retry logic.
+        
+        Args:
+            orders: List of orders to execute
+            
+        Returns:
+            Execution result dictionary
+        """
+        try:
+            executed_orders = []
+            failed_orders = []
+            
+            # Execute each order separately
+            for order in orders:
+                try:
+                    execution_result = await self._execute_with_retry(order)
+                    
+                    if execution_result["status"] == "SUBMITTED":
+                        executed_orders.append({
+                            "order": order,
+                            "result": execution_result
+                        })
+                        logger.info(f"Successfully submitted {order.tag} order: {order.symbol} {order.quantity}")
+                    else:
+                        failed_orders.append({
+                            "order": order,
+                            "result": execution_result
+                        })
+                        logger.warning(f"Failed to submit {order.tag} order: {order.symbol} {order.quantity}")
+                        
+                except Exception as e:
+                    logger.error(f"Exception executing {order.tag} order {order.symbol}: {e}")
+                    failed_orders.append({
+                        "order": order,
+                        "error": str(e)
+                    })
+            
+            # Determine overall result
+            if executed_orders and not failed_orders:
+                # All orders succeeded
+                return {
+                    "status": "SUBMITTED",
+                    "executed_orders": len(executed_orders),
+                    "failed_orders": 0,
+                    "message": f"Successfully submitted {len(executed_orders)} orders"
+                }
+            elif executed_orders and failed_orders:
+                # Partial success
+                return {
+                    "status": "PARTIAL",
+                    "executed_orders": len(executed_orders),
+                    "failed_orders": len(failed_orders),
+                    "message": f"Partial success: {len(executed_orders)} submitted, {len(failed_orders)} failed"
+                }
+            else:
+                # All failed
+                return {
+                    "status": "FAILED", 
+                    "executed_orders": 0,
+                    "failed_orders": len(failed_orders),
+                    "message": f"All {len(failed_orders)} orders failed"
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to execute orders: {e}")
+            return {
+                "status": "FAILED",
+                "message": f"Order execution failed: {e}"
+            }
+
+    def _check_greylist(self, order: Order) -> RoutingResult:
+        """
+        Check if order symbol is on the greylist
+        
+        Args:
+            order: Order to check
+            
+        Returns:
+            RoutingResult with decision
+        """
+        try:
+            greylist_manager = get_greylist_manager()
+            
+            # Check if symbol is greylisted
+            if greylist_manager.is_greylisted(order.symbol):
+                # Check for emergency override
+                override_enabled = greylist_manager.is_override_enabled()
+                has_override = order.meta and order.meta.get("graylist_override", False)
+                
+                if override_enabled and has_override:
+                    logger.warning(f"GRAYLIST OVERRIDE - allowing order for {order.symbol} "
+                                 f"(override: {has_override})")
+                    
+                    self.execution_logger.order_event(
+                        event_type="greylist_override",
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        message=f"Greylist override applied for {order.symbol}",
+                        override_flag=has_override
+                    )
+                    
+                    return RoutingResult(
+                        decision=RoutingDecision.APPROVE,
+                        original_order=order,
+                        routing_notes=f"Greylist override applied for {order.symbol}"
+                    )
+                else:
+                    logger.warning(f"GRAYLIST - skipping order {order.symbol}")
+                    
+                    self.execution_logger.order_event(
+                        event_type="greylist_blocked",
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        message=f"Order blocked by greylist: {order.symbol}",
+                        greylist_symbols=greylist_manager.get_greylist()
+                    )
+                    
+                    return RoutingResult(
+                        decision=RoutingDecision.REJECT,
+                        original_order=order,
+                        rejection_reason=f"Symbol {order.symbol} is on the greylist"
+                    )
+            
+            # Symbol not greylisted, proceed
+            return RoutingResult(
+                decision=RoutingDecision.APPROVE,
+                original_order=order,
+                routing_notes=f"Symbol {order.symbol} not on greylist"
+            )
+            
+        except Exception as e:
+            logger.error(f"Greylist check failed for {order.symbol}: {e}")
+            # On error, allow the order to proceed (fail-safe)
+            return RoutingResult(
+                decision=RoutingDecision.APPROVE,
+                original_order=order,
+                routing_notes=f"Greylist check error (allowing): {e}"
+            )
+
+    def _safety_checks(self, order: Order) -> RoutingResult:
+        """
+        Perform additional safety checks on the order
+        
+        Args:
+            order: Order to check
+            
+        Returns:
+            RoutingResult with decision
+        """
+        # Basic safety checks - order value limits
+        if hasattr(self, 'max_order_value') and self.max_order_value:
+            order_value = abs(order.quantity * (order.limit_price or 100))  # Estimate value
+            if order_value > self.max_order_value:
+                return RoutingResult(
+                    decision=RoutingDecision.REJECT,
+                    original_order=order,
+                    rejection_reason=f"Order value ${order_value:,.0f} exceeds limit ${self.max_order_value:,.0f}"
+                )
+        
+        # Daily order count check
+        if hasattr(self, 'max_daily_orders') and self.max_daily_orders:
+            if self.daily_order_count >= self.max_daily_orders:
+                return RoutingResult(
+                    decision=RoutingDecision.REJECT,
+                    original_order=order,
+                    rejection_reason=f"Daily order limit reached: {self.daily_order_count}/{self.max_daily_orders}"
+                )
+        
+        # All safety checks passed
+        return RoutingResult(
+            decision=RoutingDecision.APPROVE,
+            original_order=order,
+            routing_notes="All safety checks passed"
+        )

@@ -85,6 +85,7 @@ class Order:
     strategy = None
     signal_strength: float = 1.0
     notes = None
+    tag: str = None  # Tag for allocation tracking (e.g., "base", "ml_canary")
 
     @property
     def side(self) -> OrderSide:
@@ -187,6 +188,7 @@ class Fill:
     # Metadata
     strategy = None
     notes = None
+    tag: str = None  # Tag for allocation tracking (e.g., "base", "ml_canary")
 
     @property
     def side(self) -> OrderSide:

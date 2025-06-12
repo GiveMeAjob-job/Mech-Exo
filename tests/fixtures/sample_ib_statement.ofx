@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OFX>
+    <SIGNONMSGSRSV1>
+        <SONRS>
+            <STATUS>
+                <CODE>0</CODE>
+                <SEVERITY>INFO</SEVERITY>
+            </STATUS>
+            <DTSERVER>20241206120000</DTSERVER>
+            <LANGUAGE>ENG</LANGUAGE>
+        </SONRS>
+    </SIGNONMSGSRSV1>
+    
+    <INVSTMTMSGSRSV1>
+        <INVSTMTTRNRS>
+            <TRNUID>1234567890</TRNUID>
+            <STATUS>
+                <CODE>0</CODE>
+                <SEVERITY>INFO</SEVERITY>
+            </STATUS>
+            <INVSTMTRS>
+                <INVACCTFROM>
+                    <BROKERID>IB</BROKERID>
+                    <ACCTID>U1234567</ACCTID>
+                </INVACCTFROM>
+                
+                <INVTRANLIST>
+                    <DTSTART>20241206000000</DTSTART>
+                    <DTEND>20241206235959</DTEND>
+                    
+                    <BUYSTOCK>
+                        <INVTRAN>
+                            <FITID>TXN001</FITID>
+                            <DTTRADE>20241206093015</DTTRADE>
+                            <DTSETTLE>20241207000000</DTSETTLE>
+                            <MEMO>BUY AAPL</MEMO>
+                        </INVTRAN>
+                        <SECID>
+                            <UNIQUEID>037833100</UNIQUEID>
+                            <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+                        </SECID>
+                        <UNITS>100</UNITS>
+                        <UNITPRICE>150.25</UNITPRICE>
+                        <COMMISSION>1.00</COMMISSION>
+                        <TOTAL>-15026.00</TOTAL>
+                        <CURDEF>USD</CURDEF>
+                        <SUBACCTSEC>LONG</SUBACCTSEC>
+                        <SUBACCTFUND>LONG</SUBACCTFUND>
+                    </BUYSTOCK>
+                    
+                    <SELLSTOCK>
+                        <INVTRAN>
+                            <FITID>TXN002</FITID>
+                            <DTTRADE>20241206101542</DTTRADE>
+                            <DTSETTLE>20241207000000</DTSETTLE>
+                            <MEMO>SELL MSFT</MEMO>
+                        </INVTRAN>
+                        <SECID>
+                            <UNIQUEID>594918104</UNIQUEID>
+                            <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+                        </SECID>
+                        <UNITS>-50</UNITS>
+                        <UNITPRICE>305.80</UNITPRICE>
+                        <COMMISSION>1.50</COMMISSION>
+                        <TOTAL>15288.50</TOTAL>
+                        <CURDEF>USD</CURDEF>
+                        <SUBACCTSEC>LONG</SUBACCTSEC>
+                        <SUBACCTFUND>LONG</SUBACCTFUND>
+                    </SELLSTOCK>
+                    
+                    <BUYSTOCK>
+                        <INVTRAN>
+                            <FITID>TXN003</FITID>
+                            <DTTRADE>20241206112218</DTTRADE>
+                            <DTSETTLE>20241207000000</DTSETTLE>
+                            <MEMO>BUY TSLA</MEMO>
+                        </INVTRAN>
+                        <SECID>
+                            <UNIQUEID>88160R101</UNIQUEID>
+                            <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+                        </SECID>
+                        <UNITS>25</UNITS>
+                        <UNITPRICE>280.40</UNITPRICE>
+                        <COMMISSION>0.75</COMMISSION>
+                        <TOTAL>-7010.75</TOTAL>
+                        <CURDEF>USD</CURDEF>
+                        <SUBACCTSEC>LONG</SUBACCTSEC>
+                        <SUBACCTFUND>LONG</SUBACCTFUND>
+                    </BUYSTOCK>
+                    
+                    <SELLSTOCK>
+                        <INVTRAN>
+                            <FITID>TXN004</FITID>
+                            <DTTRADE>20241206144533</DTTRADE>
+                            <DTSETTLE>20241207000000</DTSETTLE>
+                            <MEMO>SELL GOOGL</MEMO>
+                        </INVTRAN>
+                        <SECID>
+                            <UNIQUEID>02079K107</UNIQUEID>
+                            <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+                        </SECID>
+                        <UNITS>-10</UNITS>
+                        <UNITPRICE>2850.60</UNITPRICE>
+                        <COMMISSION>2.00</COMMISSION>
+                        <TOTAL>28504.00</TOTAL>
+                        <CURDEF>USD</CURDEF>
+                        <SUBACCTSEC>LONG</SUBACCTSEC>
+                        <SUBACCTFUND>LONG</SUBACCTFUND>
+                    </SELLSTOCK>
+                </INVTRANLIST>
+                
+                <INVPOSLIST>
+                    <POSSTOCK>
+                        <INVPOS>
+                            <SECID>
+                                <UNIQUEID>037833100</UNIQUEID>
+                                <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+                            </SECID>
+                            <HELDINLONG>100</HELDINLONG>
+                            <UNITPRICE>150.25</UNITPRICE>
+                            <MKTVAL>15025.00</MKTVAL>
+                            <DTPRICEASOF>20241206235959</DTPRICEASOF>
+                        </INVPOS>
+                    </POSSTOCK>
+                </INVPOSLIST>
+            </INVSTMTRS>
+        </INVSTMTTRNRS>
+    </INVSTMTMSGSRSV1>
+    
+    <SECLISTMSGSRSV1>
+        <SECLISTTRNRS>
+            <TRNUID>SEC001</TRNUID>
+            <STATUS>
+                <CODE>0</CODE>
+                <SEVERITY>INFO</SEVERITY>
+            </STATUS>
+            <SECLISTRS>
+                <SECLIST>
+                    <STOCKINFO>
+                        <SECINFO>
+                            <SECID>
+                                <UNIQUEID>037833100</UNIQUEID>
+                                <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+                            </SECID>
+                            <SECNAME>APPLE INC</SECNAME>
+                            <TICKER>AAPL</TICKER>
+                        </SECINFO>
+                    </STOCKINFO>
+                    <STOCKINFO>
+                        <SECINFO>
+                            <SECID>
+                                <UNIQUEID>594918104</UNIQUEID>
+                                <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+                            </SECID>
+                            <SECNAME>MICROSOFT CORP</SECNAME>
+                            <TICKER>MSFT</TICKER>
+                        </SECINFO>
+                    </STOCKINFO>
+                    <STOCKINFO>
+                        <SECINFO>
+                            <SECID>
+                                <UNIQUEID>88160R101</UNIQUEID>
+                                <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+                            </SECID>
+                            <SECNAME>TESLA INC</SECNAME>
+                            <TICKER>TSLA</TICKER>
+                        </SECINFO>
+                    </STOCKINFO>
+                    <STOCKINFO>
+                        <SECINFO>
+                            <SECID>
+                                <UNIQUEID>02079K107</UNIQUEID>
+                                <UNIQUEIDTYPE>CUSIP</UNIQUEIDTYPE>
+                            </SECID>
+                            <SECNAME>ALPHABET INC</SECNAME>
+                            <TICKER>GOOGL</TICKER>
+                        </SECINFO>
+                    </STOCKINFO>
+                </SECLIST>
+            </SECLISTRS>
+        </SECLISTTRNRS>
+    </SECLISTMSGSRSV1>
+</OFX>

@@ -1,0 +1,321 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Performance Profiling & FlameGraphs",
+    "tags": ["performance", "profiling", "flamegraph"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Profiling Sessions Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(increase(profiling_sessions_total[24h]))",
+            "legendFormat": "Total Sessions (24h)"
+          },
+          {
+            "expr": "sum(increase(profiling_sessions_total{status=\"success\"}[24h]))",
+            "legendFormat": "Successful Sessions"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false}
+            },
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Performance Hotspots by Process",
+        "type": "bargauge",
+        "targets": [
+          {
+            "expr": "performance_hotspots_detected",
+            "legendFormat": "{{process}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "options": {
+          "displayMode": "list",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "showUnfilled": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "continuous-GrYlRd"},
+            "custom": {
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false}
+            },
+            "max": 10,
+            "min": 0,
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Profiling Duration by Target",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(profiling_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(profiling_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom"
+          },
+          "tooltip": {"mode": "single", "sort": "none"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 0,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "auto",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "unit": "s"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "CPU Usage During Profiling",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "cpu_usage_during_profiling_percent",
+            "legendFormat": "{{process}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "options": {
+          "legend": {
+            "calcs": [],
+            "displayMode": "list",
+            "placement": "bottom"
+          },
+          "tooltip": {"mode": "multi", "sort": "none"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "auto",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "max": 100,
+            "min": 0,
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "FlameGraph Generation Success Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(increase(flamegraph_generation_total{status=\"success\"}[24h])) / sum(increase(flamegraph_generation_total[24h])) * 100",
+            "legendFormat": "Success Rate %"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "custom": {
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false}
+            },
+            "max": 100,
+            "min": 0,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 80},
+                {"color": "green", "value": 95}
+              ]
+            },
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Recent FlameGraphs",
+        "type": "text",
+        "gridPos": {"h": 12, "w": 24, "x": 0, "y": 24},
+        "options": {
+          "content": "<div id=\"flamegraph-list\">\n  <h3>Recent FlameGraphs</h3>\n  <div id=\"flamegraph-container\">\n    <p>Loading flamegraphs...</p>\n  </div>\n</div>\n\n<script>\nfunction loadFlameGraphs() {\n  fetch('/api/flamegraphs/recent')\n    .then(response => response.json())\n    .then(data => {\n      const container = document.getElementById('flamegraph-container');\n      if (data.length === 0) {\n        container.innerHTML = '<p>No recent flamegraphs available.</p>';\n        return;\n      }\n      \n      let html = '<table style=\"width: 100%; border-collapse: collapse;\">';\n      html += '<tr><th>Process</th><th>Timestamp</th><th>Actions</th></tr>';\n      \n      data.forEach(fg => {\n        html += `<tr>`;\n        html += `<td>${fg.process || 'Unknown'}</td>`;\n        html += `<td>${new Date(fg.timestamp).toLocaleString()}</td>`;\n        html += `<td>`;\n        if (fg.s3_url) {\n          html += `<a href=\"${fg.s3_url}\" target=\"_blank\" style=\"margin-right: 10px;\">View</a>`;\n        }\n        if (fg.local_path) {\n          html += `<a href=\"/flamegraphs/${fg.local_path}\" target=\"_blank\">Download</a>`;\n        }\n        html += `</td>`;\n        html += `</tr>`;\n      });\n      \n      html += '</table>';\n      container.innerHTML = html;\n    })\n    .catch(error => {\n      console.error('Failed to load flamegraphs:', error);\n      document.getElementById('flamegraph-container').innerHTML = '<p>Failed to load flamegraphs.</p>';\n    });\n}\n\n// Load flamegraphs on panel load\nloadFlameGraphs();\n\n// Refresh every 5 minutes\nsetInterval(loadFlameGraphs, 5 * 60 * 1000);\n</script>",
+          "mode": "html"
+        }
+      },
+      {
+        "id": 7,
+        "title": "FlameGraph Viewer",
+        "type": "text",
+        "gridPos": {"h": 16, "w": 24, "x": 0, "y": 36},
+        "options": {
+          "content": "<div id=\"flamegraph-viewer\">\n  <h3>FlameGraph Viewer</h3>\n  <div style=\"margin-bottom: 10px;\">\n    <input type=\"text\" id=\"flamegraph-url\" placeholder=\"Enter FlameGraph S3 URL or select from list above\" style=\"width: 70%; padding: 5px;\">\n    <button onclick=\"loadFlameGraph()\" style=\"padding: 5px 10px; margin-left: 10px;\">Load FlameGraph</button>\n  </div>\n  <div id=\"flamegraph-display\" style=\"border: 1px solid #ccc; min-height: 400px; background: white; padding: 10px;\">\n    <p style=\"text-align: center; color: #666;\">Select a FlameGraph to view</p>\n  </div>\n</div>\n\n<script>\nfunction loadFlameGraph() {\n  const url = document.getElementById('flamegraph-url').value;\n  const display = document.getElementById('flamegraph-display');\n  \n  if (!url) {\n    alert('Please enter a FlameGraph URL');\n    return;\n  }\n  \n  display.innerHTML = '<p style=\"text-align: center;\">Loading FlameGraph...</p>';\n  \n  // If it's an S3 URL, load it directly\n  if (url.includes('.svg')) {\n    fetch(url)\n      .then(response => response.text())\n      .then(svgContent => {\n        display.innerHTML = svgContent;\n        \n        // Add interactivity to the SVG\n        const svg = display.querySelector('svg');\n        if (svg) {\n          svg.style.width = '100%';\n          svg.style.height = 'auto';\n          \n          // Add zoom and pan functionality\n          addSVGInteractivity(svg);\n        }\n      })\n      .catch(error => {\n        console.error('Failed to load FlameGraph:', error);\n        display.innerHTML = '<p style=\"color: red;\">Failed to load FlameGraph. Please check the URL.</p>';\n      });\n  } else {\n    display.innerHTML = '<p style=\"color: red;\">Please provide a valid SVG URL.</p>';\n  }\n}\n\nfunction addSVGInteractivity(svg) {\n  // Add basic zoom and pan functionality\n  let isPanning = false;\n  let startPoint = {x: 0, y: 0};\n  let endPoint = {x: 0, y: 0};\n  let scale = 1;\n  \n  svg.addEventListener('mousedown', function(e) {\n    isPanning = true;\n    startPoint = {x: e.clientX, y: e.clientY};\n  });\n  \n  svg.addEventListener('mousemove', function(e) {\n    if (!isPanning) return;\n    \n    endPoint = {x: e.clientX, y: e.clientY};\n    const dx = endPoint.x - startPoint.x;\n    const dy = endPoint.y - startPoint.y;\n    \n    // Apply transform\n    svg.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;\n  });\n  \n  svg.addEventListener('mouseup', function() {\n    isPanning = false;\n  });\n  \n  svg.addEventListener('wheel', function(e) {\n    e.preventDefault();\n    \n    const delta = e.deltaY > 0 ? 0.9 : 1.1;\n    scale *= delta;\n    scale = Math.max(0.1, Math.min(5, scale)); // Limit zoom\n    \n    svg.style.transform = `scale(${scale})`;\n  });\n  \n  // Add tooltips to function blocks\n  const rects = svg.querySelectorAll('rect');\n  rects.forEach(rect => {\n    rect.addEventListener('mouseenter', function(e) {\n      const title = rect.querySelector('title');\n      if (title) {\n        rect.setAttribute('data-tooltip', title.textContent);\n        // Simple tooltip implementation\n        console.log('Function:', title.textContent);\n      }\n    });\n  });\n}\n\n// Function to set URL from recent list\nfunction setFlameGraphUrl(url) {\n  document.getElementById('flamegraph-url').value = url;\n  loadFlameGraph();\n}\n</script>",
+          "mode": "html"
+        }
+      },
+      {
+        "id": 8,
+        "title": "Performance Optimization Recommendations",
+        "type": "text",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 52},
+        "options": {
+          "content": "<div id=\"recommendations\">\n  <h3>Performance Optimization Recommendations</h3>\n  <div id=\"recommendations-content\">\n    <p>Loading recommendations...</p>\n  </div>\n</div>\n\n<script>\nfunction loadRecommendations() {\n  fetch('/api/performance/recommendations')\n    .then(response => response.json())\n    .then(data => {\n      const content = document.getElementById('recommendations-content');\n      \n      if (!data.recommendations || data.recommendations.length === 0) {\n        content.innerHTML = '<p>No recommendations available. Run profiling to generate insights.</p>';\n        return;\n      }\n      \n      let html = '<div style=\"display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;\">';\n      \n      data.recommendations.forEach(rec => {\n        html += `<div style=\"background: #1a1a1a; border: 1px solid #333; border-radius: 5px; padding: 15px;\">`;\n        html += `<h4 style=\"margin-top: 0; color: #ff6b6b;\">${rec.category}</h4>`;\n        html += `<p>${rec.description}</p>`;\n        if (rec.impact) {\n          html += `<div style=\"background: #2a2a2a; padding: 5px; border-radius: 3px; font-size: 0.9em;\">`;\n          html += `<strong>Expected Impact:</strong> ${rec.impact}`;\n          html += `</div>`;\n        }\n        html += `</div>`;\n      });\n      \n      html += '</div>';\n      content.innerHTML = html;\n    })\n    .catch(error => {\n      console.error('Failed to load recommendations:', error);\n      document.getElementById('recommendations-content').innerHTML = '<p>Failed to load recommendations.</p>';\n    });\n}\n\n// Load recommendations on panel load\nloadRecommendations();\n\n// Refresh every 10 minutes\nsetInterval(loadRecommendations, 10 * 60 * 1000);\n</script>",
+          "mode": "html"
+        }
+      }
+    ],
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "templating": {
+      "list": [
+        {
+          "current": {
+            "selected": false,
+            "text": "All",
+            "value": "$__all"
+          },
+          "hide": 0,
+          "includeAll": true,
+          "label": "Process",
+          "multi": false,
+          "name": "process",
+          "options": [],
+          "query": "label_values(profiling_sessions_total, target)",
+          "refresh": 1,
+          "regex": "",
+          "skipUrlSync": false,
+          "sort": 0,
+          "tagValuesQuery": "",
+          "tagsQuery": "",
+          "type": "query",
+          "useTags": false
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": "-- Grafana --",
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        },
+        {
+          "datasource": "prometheus",
+          "enable": true,
+          "expr": "changes(profiling_sessions_total[1m]) > 0",
+          "iconColor": "green",
+          "name": "Profiling Sessions",
+          "showIn": 0,
+          "step": "1m",
+          "tagKeys": "target",
+          "textFormat": "Profiling session: {{target}}",
+          "titleFormat": "Performance Profiling"
+        }
+      ]
+    },
+    "refresh": "30s",
+    "schemaVersion": 27,
+    "version": 0,
+    "links": [
+      {
+        "asDropdown": false,
+        "icon": "external link",
+        "includeVars": false,
+        "keepTime": false,
+        "tags": [],
+        "targetBlank": true,
+        "title": "Performance Analysis Guide",
+        "tooltip": "Guide for analyzing FlameGraphs",
+        "type": "link",
+        "url": "https://docs.mech-exo.com/performance/flamegraph-analysis"
+      }
+    ]
+  }
+}

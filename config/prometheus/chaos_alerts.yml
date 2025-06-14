@@ -1,0 +1,225 @@
+# Prometheus Alerts for Chaos Testing
+# Phase P11 Week 3 Weekend - SLO monitoring with auto-abort
+
+groups:
+  - name: chaos_testing_slos
+    rules:
+      # Order Error Rate SLO
+      - alert: order_errors_high_warning
+        expr: rate(order_errors_total[5m]) * 100 > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          slo: order_error_rate
+          component: trading
+        annotations:
+          summary: "Order error rate exceeding warning threshold"
+          description: "Order error rate is {{ $value }}% (threshold: 0.5%)"
+          runbook_url: "https://docs.mech-exo.com/runbooks/order-errors"
+          
+      - alert: order_errors_high_critical
+        expr: rate(order_errors_total[5m]) * 100 > 1.0
+        for: 1m
+        labels:
+          severity: critical
+          slo: order_error_rate
+          component: trading
+          pagerduty: "true"
+        annotations:
+          summary: "CRITICAL: Order error rate exceeding SLO"
+          description: "Order error rate is {{ $value }}% (SLO: 1.0%)"
+          chaos_abort: "true"
+          
+      # Risk Operations SLO
+      - alert: risk_ops_budget_burn
+        expr: risk_ops_success_rate_5m < 0.98
+        for: 2m
+        labels:
+          severity: warning
+          slo: risk_operations
+          component: risk
+        annotations:
+          summary: "Risk operations success rate below SLO"
+          description: "Risk ops success rate: {{ $value }} (SLO: 0.98)"
+          
+      - alert: risk_ops_budget_critical
+        expr: risk_ops_success_rate_5m < 0.95
+        for: 1m
+        labels:
+          severity: critical
+          slo: risk_operations
+          component: risk
+          pagerduty: "true"
+        annotations:
+          summary: "CRITICAL: Risk operations failing"
+          description: "Risk ops success rate: {{ $value }} (critical threshold: 0.95)"
+          chaos_abort: "true"
+          
+      # API Latency SLO
+      - alert: api_latency_high
+        expr: histogram_quantile(0.95, rate(api_request_duration_ms_bucket[5m])) > 400
+        for: 3m
+        labels:
+          severity: warning
+          slo: api_latency
+          component: api
+        annotations:
+          summary: "API P95 latency exceeding threshold"
+          description: "API P95 latency: {{ $value }}ms (threshold: 400ms)"
+          
+      - alert: api_latency_critical
+        expr: histogram_quantile(0.95, rate(api_request_duration_ms_bucket[5m])) > 800
+        for: 2m
+        labels:
+          severity: critical
+          slo: api_latency
+          component: api
+          pagerduty: "true"
+        annotations:
+          summary: "CRITICAL: API latency severely degraded"
+          description: "API P95 latency: {{ $value }}ms (critical threshold: 800ms)"
+          chaos_abort: "true"
+          
+      # Kill Switch Recovery Time SLO
+      - alert: kill_switch_slow
+        expr: kill_switch_recovery_time_seconds > 60
+        for: 0m  # Immediate alert
+        labels:
+          severity: warning
+          slo: kill_switch_recovery
+          component: killswitch
+        annotations:
+          summary: "Kill switch recovery time exceeding SLO"
+          description: "Kill switch recovery took {{ $value }}s (SLO: 60s)"
+          
+      - alert: kill_switch_critical
+        expr: kill_switch_recovery_time_seconds > 240
+        for: 0m  # Immediate alert
+        labels:
+          severity: critical
+          slo: kill_switch_recovery
+          component: killswitch
+          pagerduty: "true"
+        annotations:
+          summary: "CRITICAL: Kill switch recovery severely delayed"
+          description: "Kill switch recovery took {{ $value }}s (critical: 240s)"
+          chaos_abort: "true"
+          
+      # Error Budget Burn Rate
+      - alert: error_budget_burn_rate_high
+        expr: (1 - (up > 0)) * 100 > 5
+        for: 5m
+        labels:
+          severity: warning
+          slo: error_budget
+          component: system
+        annotations:
+          summary: "Error budget burning at high rate"
+          description: "Error budget burn rate: {{ $value }}%/hour"
+          
+      - alert: error_budget_depleted
+        expr: (1 - (up > 0)) * 100 > 10
+        for: 2m
+        labels:
+          severity: critical
+          slo: error_budget
+          component: system
+          pagerduty: "true"
+        annotations:
+          summary: "CRITICAL: Error budget severely depleted"
+          description: "Error budget burn rate: {{ $value }}%/hour (critical: 10%)"
+          chaos_abort: "true"
+          
+      # Chaos Testing Infrastructure
+      - alert: chaos_load_generator_down
+        expr: up{job="chaos_load_generator"} == 0
+        for: 1m
+        labels:
+          severity: warning
+          component: chaos
+        annotations:
+          summary: "Chaos load generator is down"
+          description: "Load generator for chaos testing is not responding"
+          
+      - alert: chaos_scenario_failures
+        expr: increase(chaos_scenario_failures_total[10m]) > 3
+        for: 1m
+        labels:
+          severity: warning
+          component: chaos
+        annotations:
+          summary: "Multiple chaos scenario failures"
+          description: "{{ $value }} chaos scenarios failed in last 10 minutes"
+          
+      # Database and Infrastructure
+      - alert: duckdb_connection_failures
+        expr: rate(duckdb_connection_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "DuckDB connection failures detected"
+          description: "DuckDB connection error rate: {{ $value }} errors/sec"
+          
+      - alert: ib_gateway_disconnected
+        expr: ib_gateway_connected == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: trading
+          pagerduty: "true"
+        annotations:
+          summary: "IB Gateway disconnected"
+          description: "IB Gateway connection lost - trading may be impaired"
+          
+      # Kubernetes Infrastructure
+      - alert: pod_crash_looping
+        expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 15 > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: kubernetes
+        annotations:
+          summary: "Pod crash looping detected"
+          description: "Pod {{ $labels.pod }} is crash looping"
+          
+      - alert: node_disk_full
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: infrastructure
+          pagerduty: "true"
+        annotations:
+          summary: "CRITICAL: Node disk nearly full"
+          description: "Disk usage on {{ $labels.instance }}: {{ $value }}% available"
+          
+      # Network and Connectivity
+      - alert: high_network_latency
+        expr: increase(network_chaos_active[1m]) > 0 and histogram_quantile(0.95, rate(network_latency_ms_bucket[5m])) > 1000
+        for: 2m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High network latency during chaos"
+          description: "Network P95 latency: {{ $value }}ms during chaos injection"
+          
+      # Chaos-specific SLO violations
+      - alert: chaos_slo_violation_duration
+        expr: |
+          (
+            ALERTS{alertname=~".*_critical", chaos_abort="true"} == 1
+          ) * on() group_left() (
+            time() - ALERTS_FOR_STATE{alertname=~".*_critical"}
+          ) > 300
+        for: 0m
+        labels:
+          severity: critical
+          component: chaos
+          pagerduty: "true"
+        annotations:
+          summary: "CRITICAL: SLO violations persisting >5min - CHAOS ABORT"
+          description: "Critical SLO violations have persisted for {{ $value }}s"
+          chaos_abort: "immediate"

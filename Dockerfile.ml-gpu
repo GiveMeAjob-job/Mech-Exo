@@ -1,0 +1,140 @@
+# Multi-stage Docker build for LightGBM GPU inference
+# Phase P11 Week 4 Day 2 - CUDA-accelerated ML inference
+
+# Stage 1: CUDA base with dependencies
+FROM nvidia/cuda:11.8-devel-ubuntu22.04 AS cuda-base
+
+# Avoid interactive prompts during build
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3.10-dev \
+    python3-pip \
+    python3.10-venv \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    curl \
+    libboost-dev \
+    libboost-system-dev \
+    libboost-filesystem-dev \
+    libomp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create symlinks for python
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3.10 /usr/bin/python
+
+# Upgrade pip and install basic Python packages
+RUN python3 -m pip install --upgrade pip setuptools wheel
+
+# Stage 2: LightGBM GPU compilation
+FROM cuda-base AS lightgbm-gpu
+
+# Set working directory
+WORKDIR /opt/lightgbm
+
+# Clone and build LightGBM with GPU support
+RUN git clone --recursive --branch stable --depth 1 https://github.com/microsoft/LightGBM.git . && \
+    mkdir build && cd build && \
+    cmake -DUSE_GPU=1 -DUSE_CUDA=1 .. && \
+    make -j$(nproc) && \
+    cd ../python-package && \
+    python3 setup.py install --gpu
+
+# Stage 3: Application environment
+FROM cuda-base AS app-base
+
+# Copy LightGBM installation from previous stage
+COPY --from=lightgbm-gpu /usr/local/lib/python3.10/dist-packages/lightgbm* /usr/local/lib/python3.10/dist-packages/
+
+# Install Python dependencies for ML inference
+RUN pip3 install --no-cache-dir \
+    numpy==1.24.3 \
+    pandas==2.0.3 \
+    scikit-learn==1.3.0 \
+    torch==2.0.1+cu118 -f https://download.pytorch.org/whl/torch_stable.html \
+    torchvision==0.15.2+cu118 -f https://download.pytorch.org/whl/torch_stable.html \
+    asyncio-throttle==1.0.2 \
+    aiohttp==3.8.5 \
+    prometheus-client==0.17.1 \
+    redis==4.6.0 \
+    joblib==1.3.2
+
+# Install additional dependencies for the application
+RUN pip3 install --no-cache-dir \
+    fastapi==0.103.1 \
+    uvicorn==0.23.2 \
+    pydantic==2.3.0 \
+    python-multipart==0.0.6 \
+    websockets==11.0.3
+
+# Stage 4: Final application image
+FROM app-base AS production
+
+# Create application user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy application code
+COPY --chown=appuser:appuser . .
+
+# Create necessary directories
+RUN mkdir -p /app/models /app/logs /app/tmp && \
+    chown -R appuser:appuser /app
+
+# Install application dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt || true
+
+# Environment variables
+ENV PYTHONPATH=/app
+ENV CUDA_VISIBLE_DEVICES=0
+ENV LIGHTGBM_EXEC=/usr/local/bin/lightgbm
+ENV OMP_NUM_THREADS=4
+ENV MKL_NUM_THREADS=4
+
+# GPU-specific environment variables
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+ENV NVIDIA_REQUIRE_CUDA="cuda>=11.8"
+
+# Application configuration
+ENV ML_DEVICE_TYPE=gpu
+ENV ML_GPU_DEVICE_ID=0
+ENV ML_MAX_BATCH_SIZE=1000
+ENV ML_ENABLE_FALLBACK=true
+ENV ML_MEMORY_LIMIT_MB=2048
+
+# Expose ports
+EXPOSE 8000 9090
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python3 -c "import torch; print('CUDA available:', torch.cuda.is_available()); \
+                    import lightgbm as lgb; print('LightGBM GPU:', 'gpu' in lgb.LGBMRegressor().device_type)" || exit 1
+
+# Switch to non-root user
+USER appuser
+
+# Default command
+CMD ["python3", "-m", "ml.gpu_infer"]
+
+# Labels for container metadata
+LABEL maintainer="mech-exo-team"
+LABEL version="1.0"
+LABEL description="LightGBM GPU inference container for Mech-Exo"
+LABEL cuda.version="11.8"
+LABEL lightgbm.gpu="enabled"
+
+# Multi-architecture support
+LABEL org.opencontainers.image.source="https://github.com/mech-exo/mech-exo"
+LABEL org.opencontainers.image.vendor="Mech-Exo"
+LABEL org.opencontainers.image.licenses="MIT"

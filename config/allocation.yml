@@ -3,8 +3,8 @@
 
 # Canary A/B Testing Configuration
 canary:
-  # Whether canary allocation is enabled
-  enabled: true
+  # Whether canary allocation is enabled - DISABLED for Phase P11 Week 3 merge
+  enabled: false
   
   # Percentage of each order allocated to canary (0.50 = 50%) - Phase P11 Week 2
   allocation: 0.50
@@ -51,8 +51,8 @@ position_sizing:
 
 # Metadata
 created_at: "2025-01-11T00:00:00Z"
-updated_at: "2025-06-13T16:00:00Z"
-version: "1.1.0"
+updated_at: "2025-06-13T21:30:00Z"
+version: "1.2.0"
 
 # Change history for audit trail
 change_history:
@@ -64,3 +64,7 @@ change_history:
     timestamp: "2025-06-13T16:00:00Z"
     user: "phase-p11-deployment"
     changes: "Expanded canary allocation from 10% to 50% for Phase P11 Week 2"
+  - action: "merge_canary_to_base"
+    timestamp: "2025-06-13T21:30:00Z"
+    user: "phase-p11w3-deployment"
+    changes: "MERGE_TO_BASE: Disabled canary system, merged learnings into base strategy for full production rollout"

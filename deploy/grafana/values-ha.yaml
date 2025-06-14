@@ -1,0 +1,444 @@
+# Grafana High Availability Configuration
+# Phase P11 Week 3 Day 4: Dual-active setup with regional deployment
+
+# Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# Grafana configuration
+grafana:
+  # High availability setup
+  replicas: 2
+  
+  # Image configuration
+  image:
+    repository: grafana/grafana
+    tag: "10.2.0"
+    pullPolicy: IfNotPresent
+  
+  # Resource configuration for HA
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  
+  # Service configuration
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 3000
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
+  
+  # Ingress configuration (optional)
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: "nginx"
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: grafana.mech-exo.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.mech-exo.com
+  
+  # Persistence configuration for HA
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: "gp3"
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+  
+  # Database configuration (external for HA)
+  database:
+    type: postgres
+    host: grafana-postgres.mech-exo.com:5432
+    name: grafana
+    user: grafana
+    password: ${GRAFANA_DB_PASSWORD}
+    sslMode: require
+  
+  # Admin configuration
+  admin:
+    existingSecret: "grafana-admin-secret"
+    userKey: admin-user
+    passwordKey: admin-password
+  
+  # Environment variables
+  env:
+    GF_SECURITY_ADMIN_USER:
+      valueFrom:
+        secretKeyRef:
+          name: grafana-admin-secret
+          key: admin-user
+    GF_SECURITY_ADMIN_PASSWORD:
+      valueFrom:
+        secretKeyRef:
+          name: grafana-admin-secret
+          key: admin-password
+    GF_INSTALL_PLUGINS: "grafana-piechart-panel,grafana-clock-panel,grafana-simple-json-datasource"
+    GF_FEATURE_TOGGLES_ENABLE: "ngalert"
+    GF_UNIFIED_ALERTING_ENABLED: "true"
+    GF_ALERTING_ENABLED: "false"
+  
+  # Grafana configuration
+  grafana.ini:
+    # Server configuration
+    server:
+      protocol: http
+      http_port: 3000
+      domain: grafana.mech-exo.com
+      root_url: "https://grafana.mech-exo.com"
+      serve_from_sub_path: false
+      enable_gzip: true
+    
+    # Database configuration
+    database:
+      type: postgres
+      host: grafana-postgres.mech-exo.com:5432
+      name: grafana
+      user: grafana
+      password: ${GRAFANA_DB_PASSWORD}
+      ssl_mode: require
+      max_idle_conn: 25
+      max_open_conn: 300
+      conn_max_lifetime: 14400
+    
+    # Session configuration
+    session:
+      provider: postgres
+      provider_config: "user=grafana password=${GRAFANA_DB_PASSWORD} host=grafana-postgres.mech-exo.com port=5432 dbname=grafana sslmode=require"
+      cookie_secure: true
+      cookie_samesite: lax
+      session_life_time: 86400
+    
+    # Security configuration
+    security:
+      disable_initial_admin_creation: false
+      admin_user: ${GF_SECURITY_ADMIN_USER}
+      admin_password: ${GF_SECURITY_ADMIN_PASSWORD}
+      secret_key: ${GRAFANA_SECRET_KEY}
+      disable_gravatar: true
+      data_source_proxy_whitelist: "prometheus.mech-exo.com:9090,alertmanager.mech-exo.com:9093"
+    
+    # Authentication configuration
+    auth:
+      disable_login_form: false
+      disable_signout_menu: false
+      signout_redirect_url: ""
+      oauth_auto_login: false
+    
+    # Anonymous access
+    auth.anonymous:
+      enabled: false
+    
+    # Logging configuration
+    log:
+      mode: console
+      level: info
+      filters: "alerting.notifier.slack:debug"
+    
+    # Metrics configuration
+    metrics:
+      enabled: true
+      interval_seconds: 10
+      disable_total_stats: false
+    
+    # Alerting configuration (unified alerting)
+    alerting:
+      enabled: false  # Disable legacy alerting
+    
+    unified_alerting:
+      enabled: true
+      min_interval: 10s
+      max_attempts: 3
+      execute_alerts: true
+    
+    # External image storage
+    external_image_storage:
+      provider: s3
+      s3:
+        bucket: mech-exo-grafana-images
+        region: us-east-1
+        path: images/
+        bucket_url: ""
+        access_key: ${AWS_ACCESS_KEY_ID}
+        secret_key: ${AWS_SECRET_ACCESS_KEY}
+    
+    # SMTP configuration
+    smtp:
+      enabled: true
+      host: smtp.mech-exo.com:587
+      user: grafana@mech-exo.com
+      password: ${SMTP_PASSWORD}
+      from_address: grafana@mech-exo.com
+      from_name: "Mech-Exo Grafana"
+      startTLS_policy: "MandatoryStartTLS"
+    
+    # Users configuration
+    users:
+      allow_sign_up: false
+      allow_org_create: false
+      auto_assign_org: true
+      auto_assign_org_id: 1
+      auto_assign_org_role: Viewer
+      verify_email_enabled: false
+      default_theme: dark
+    
+    # Datasources configuration
+    datasources:
+      deletion_protection: true
+    
+    # Dashboards configuration
+    dashboards:
+      default_home_dashboard_path: "/var/lib/grafana/dashboards/mech-exo/risk_control.json"
+      min_refresh_interval: 5s
+      versions_to_keep: 20
+    
+    # Feature toggles
+    feature_toggles:
+      enable: "ngalert,live,publicDashboards"
+
+  # Pod disruption budget for HA
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    maxUnavailable: 1
+  
+  # Pod anti-affinity for HA
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - grafana
+            topologyKey: kubernetes.io/hostname
+  
+  # Liveness and readiness probes
+  livenessProbe:
+    httpGet:
+      path: /api/health
+      port: http
+    initialDelaySeconds: 60
+    timeoutSeconds: 30
+    periodSeconds: 10
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /api/health
+      port: http
+    initialDelaySeconds: 30
+    timeoutSeconds: 30
+    periodSeconds: 5
+    failureThreshold: 3
+  
+  # Node selector for region distribution
+  nodeSelector:
+    node.kubernetes.io/instance-type: "t3.medium"
+  
+  # Tolerations
+  tolerations: []
+  
+  # Security context
+  securityContext:
+    runAsUser: 472
+    runAsGroup: 472
+    fsGroup: 472
+  
+  # Extra labels
+  extraLabels:
+    environment: "production"
+    component: "monitoring"
+    region: "multi"
+  
+  # Extra containers for sidecar pattern
+  extraContainers: |
+    - name: grafana-backup
+      image: alpine:3.18
+      command:
+        - sh
+        - -c
+        - |
+          while true; do
+            echo "Backup process placeholder"
+            sleep 3600
+          done
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
+
+# Regional configuration
+regional:
+  # Primary region (us-east-1)
+  primary:
+    enabled: true
+    region: "us-east-1"
+    replicas: 1
+    nodeSelector:
+      topology.kubernetes.io/zone: "us-east-1a"
+    
+  # Secondary region (us-west-2)
+  secondary:
+    enabled: true
+    region: "us-west-2"
+    replicas: 1
+    nodeSelector:
+      topology.kubernetes.io/zone: "us-west-2a"
+
+# Monitoring configuration
+monitoring:
+  # ServiceMonitor for Prometheus
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    labels:
+      app: grafana
+      release: prometheus
+    interval: 30s
+    path: /metrics
+    targetLabels:
+      - app
+      - region
+  
+  # Grafana dashboards
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    labelValue: "1"
+    annotations:
+      grafana_folder: "Mech-Exo"
+
+# Backup configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: 30  # Keep 30 days
+  storage:
+    type: s3
+    bucket: mech-exo-grafana-backups
+    region: us-east-1
+    path: backups/
+
+# Network policies
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 5432  # PostgreSQL
+        - protocol: TCP
+          port: 9090  # Prometheus
+        - protocol: TCP
+          port: 443   # HTTPS
+
+# Secrets configuration
+secrets:
+  # Database password
+  database:
+    name: grafana-db-secret
+    key: password
+  
+  # Admin credentials
+  admin:
+    name: grafana-admin-secret
+    userKey: admin-user
+    passwordKey: admin-password
+  
+  # SMTP password
+  smtp:
+    name: grafana-smtp-secret
+    key: password
+
+# External services
+external:
+  # PostgreSQL configuration
+  postgresql:
+    enabled: false  # Use external PostgreSQL
+    host: grafana-postgres.mech-exo.com
+    port: 5432
+    database: grafana
+    username: grafana
+  
+  # Redis for session storage (optional)
+  redis:
+    enabled: false
+    host: grafana-redis.mech-exo.com
+    port: 6379
+
+# Load balancer configuration
+loadBalancer:
+  # AWS Load Balancer Controller annotations
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-enabled: "true"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: "/api/health"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval-seconds: "15"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-timeout-seconds: "5"
+    service.beta.kubernetes.io/aws-load-balancer-healthy-threshold-count: "2"
+    service.beta.kubernetes.io/aws-load-balancer-unhealthy-threshold-count: "2"
+
+# Alertmanager integration
+alertmanager:
+  enabled: true
+  url: "http://alertmanager.mech-exo.com:9093"
+  
+# Prometheus remote write configuration
+prometheus:
+  # Primary region Prometheus
+  primary:
+    url: "http://prometheus-primary.mech-exo.com:9090"
+    remote_write:
+      - url: "http://prometheus-secondary.mech-exo.com:9090/api/v1/write"
+        queue_config:
+          max_samples_per_send: 10000
+          batch_send_deadline: 5s
+          max_retries: 3
+          min_backoff: 30ms
+          max_backoff: 100ms
+  
+  # Secondary region Prometheus
+  secondary:
+    url: "http://prometheus-secondary.mech-exo.com:9090"
+    remote_write:
+      - url: "http://prometheus-primary.mech-exo.com:9090/api/v1/write"
+        queue_config:
+          max_samples_per_send: 10000
+          batch_send_deadline: 5s
+          max_retries: 3
+          min_backoff: 30ms
+          max_backoff: 100ms

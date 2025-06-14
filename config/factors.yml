@@ -3,8 +3,23 @@
 
 # Factor Scoring Configuration
 
-# ML Integration Weight (0.0 - 0.50)
+# ML Integration Weight (0.0 - 0.50) - Phase P11 Week 3: Canary merged to base
 ml_weight: 0.35
+
+# ML Weight History (for audit trail)
+ml_weight_history:
+  - timestamp: "2025-06-10T00:00:00Z"
+    weight: 0.25
+    action: "initial_canary_test"
+    notes: "Started canary testing with 25% ML weight"
+  - timestamp: "2025-06-13T16:00:00Z"
+    weight: 0.35
+    action: "canary_expansion"
+    notes: "Expanded to 50% canary allocation, increased ML weight to 35%"
+  - timestamp: "2025-06-13T21:30:00Z"
+    weight: 0.35
+    action: "MERGE_TO_BASE"
+    notes: "Canary disabled, ML weight 35% applied to all production trades"
 
 # Fundamental Factors (0-100 weight)
 fundamental:

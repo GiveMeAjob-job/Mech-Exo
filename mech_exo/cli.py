@@ -307,6 +307,8 @@ def main():
     canary_disable_parser = canary_subparsers.add_parser("disable", help="Disable canary allocation")
     canary_disable_parser.add_argument("--reason", type=str, default="manual",
                                       help="Disable reason (default: manual)")
+    canary_disable_parser.add_argument("--final-merge", action="store_true", default=False,
+                                      help="Final merge: disable canary and record MERGE_TO_BASE action")
     
     # Canary test command
     canary_test_parser = canary_subparsers.add_parser("test", help="Test canary threshold logic")
@@ -2057,7 +2059,43 @@ def _handle_canary_command(args):
                     sys.exit(1)
                 
         elif args.canary_command == "disable":
-            print(f"⏸️ Disabling canary allocation (reason: {args.reason})...")
+            if args.final_merge:
+                print(f"🔄 Final merge: Disabling canary and merging to base (reason: {args.reason})...")
+                
+                # Record MERGE_TO_BASE action in allocation config
+                from datetime import datetime
+                from pathlib import Path
+                import yaml
+                
+                allocation_path = Path("config/allocation.yml")
+                if allocation_path.exists():
+                    with open(allocation_path, 'r') as f:
+                        config = yaml.safe_load(f)
+                    
+                    # Add merge record to change history
+                    merge_record = {
+                        'action': 'merge_canary_to_base',
+                        'timestamp': datetime.now().isoformat(),
+                        'user': 'cli-final-merge',
+                        'changes': f'MERGE_TO_BASE: Final canary disable with reason: {args.reason}'
+                    }
+                    
+                    if 'change_history' not in config:
+                        config['change_history'] = []
+                    config['change_history'].append(merge_record)
+                    
+                    # Update version
+                    config['updated_at'] = datetime.now().isoformat()
+                    if 'version' in config:
+                        version_parts = config['version'].split('.')
+                        config['version'] = f"{version_parts[0]}.{int(version_parts[1]) + 1}.0"
+                    
+                    with open(allocation_path, 'w') as f:
+                        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+                    
+                    print("✅ Recorded MERGE_TO_BASE action in allocation.yml")
+            else:
+                print(f"⏸️ Disabling canary allocation (reason: {args.reason})...")
             
             success = update_canary_enabled(False)
             if success:
@@ -2066,6 +2104,10 @@ def _handle_canary_command(args):
                 # Reset breach counter when manually disabled
                 reset_breach_counter()
                 print("✅ Reset consecutive breach counter")
+                
+                if args.final_merge:
+                    print("🎯 Canary successfully merged to base strategy")
+                    print("   All future trades will use the optimized ML weight (35%)")
             else:
                 print("❌ Failed to disable canary")
                 sys.exit(1)

@@ -37,19 +37,20 @@ def get_canary_allocation(config_path: str = "config/allocation.yml") -> float:
         with open(config_file, 'r') as f:
             config = yaml.safe_load(f)
         
-        # Check if canary is enabled
-        canary_enabled = config.get('canary_enabled', True)
+        # Check if canary is enabled (support both old and new config structure)
+        canary_config = config.get('canary', {})
+        canary_enabled = canary_config.get('enabled', config.get('canary_enabled', True))
         if not canary_enabled:
             logger.info("Canary allocation disabled in config")
             return 0.0
         
-        # Get allocation percentage
-        allocation = config.get('canary_allocation', 0.10)
+        # Get allocation percentage (support both old and new config structure)
+        allocation = canary_config.get('allocation', config.get('canary_allocation', 0.10))
         
-        # Validate range
-        if not (0.0 <= allocation <= 0.30):
-            logger.warning(f"Invalid canary allocation {allocation}, clamping to [0.0, 0.30]")
-            allocation = max(0.0, min(0.30, allocation))
+        # Validate range - Phase P11 Week 2: Increased limit to 60% for scaled beta
+        if not (0.0 <= allocation <= 0.60):
+            logger.warning(f"Invalid canary allocation {allocation}, clamping to [0.0, 0.60]")
+            allocation = max(0.0, min(0.60, allocation))
         
         logger.debug(f"Canary allocation: {allocation:.1%}")
         return allocation
@@ -119,7 +120,9 @@ def is_canary_enabled(config_path: str = "config/allocation.yml") -> bool:
         with open(config_file, 'r') as f:
             config = yaml.safe_load(f)
         
-        return config.get('canary_enabled', True)
+        # Support both old and new config structure
+        canary_config = config.get('canary', {})
+        return canary_config.get('enabled', config.get('canary_enabled', True))
         
     except Exception as e:
         logger.error(f"Failed to check canary status: {e}")

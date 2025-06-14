@@ -1,0 +1,246 @@
+/* Risk Control Panel Styling - Day 5 Module 1 */
+
+/* Responsive grid adjustments */
+@media (max-width: 1024px) {
+    .risk-control-grid .col-lg-4 {
+        margin-bottom: 1rem;
+    }
+    
+    .risk-control-grid .col-lg-6 {
+        margin-bottom: 1rem;
+    }
+}
+
+/* PnL Lamp styling */
+.pnl-lamp {
+    padding: 20px;
+    border-radius: 50%;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}
+
+.pnl-lamp:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Traffic light colors with glow effects */
+.lamp-green {
+    background: radial-gradient(circle, #28a745, #1e7e34);
+    color: white;
+    box-shadow: 0 0 20px rgba(40, 167, 69, 0.5);
+}
+
+.lamp-yellow {
+    background: radial-gradient(circle, #ffc107, #e0a800);
+    color: #212529;
+    box-shadow: 0 0 20px rgba(255, 193, 7, 0.5);
+}
+
+.lamp-red {
+    background: radial-gradient(circle, #dc3545, #bd2130);
+    color: white;
+    box-shadow: 0 0 20px rgba(220, 53, 69, 0.5);
+}
+
+/* Kill-switch toggle styling */
+.killswitch-toggle {
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+}
+
+.killswitch-enabled {
+    background: linear-gradient(135deg, #28a745, #20c997);
+    border-color: #1e7e34;
+    box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
+}
+
+.killswitch-enabled:hover {
+    background: linear-gradient(135deg, #20c997, #28a745);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(40, 167, 69, 0.4);
+}
+
+.killswitch-disabled {
+    background: linear-gradient(135deg, #dc3545, #fd7e14);
+    border-color: #bd2130;
+    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+    cursor: not-allowed;
+}
+
+/* Capital utilization bar */
+.capital-bar {
+    border-radius: 10px;
+    overflow: hidden;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+}
+
+.capital-bar .progress {
+    border-radius: 10px;
+    height: 20px !important;
+}
+
+.capital-bar .progress-bar {
+    transition: width 0.6s ease, background-color 0.3s ease;
+}
+
+/* Badge animations */
+.status-badge {
+    animation: pulse 2s infinite;
+    display: inline-block;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.badge-success {
+    background: linear-gradient(135deg, #28a745, #20c997);
+}
+
+.badge-warning {
+    background: linear-gradient(135deg, #ffc107, #fd7e14);
+}
+
+.badge-danger {
+    background: linear-gradient(135deg, #dc3545, #fd7e14);
+}
+
+/* Card hover effects */
+.risk-card {
+    transition: all 0.3s ease;
+    border: 1px solid #dee2e6;
+}
+
+.risk-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+    border-color: #007bff;
+}
+
+/* Action button styling */
+.risk-actions .btn {
+    transition: all 0.3s ease;
+    margin: 0 2px;
+}
+
+.risk-actions .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Loading spinner overlay */
+.risk-loading {
+    position: relative;
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.risk-loading::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 0.375rem;
+}
+
+/* Error state styling */
+.risk-error {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+    padding: 1rem;
+    border-radius: 0.375rem;
+    margin: 0.5rem 0;
+}
+
+.risk-error .fas {
+    margin-right: 0.5rem;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .risk-control-grid .col-12 {
+        margin-bottom: 1rem;
+    }
+    
+    .risk-actions .btn {
+        margin-bottom: 0.5rem;
+        width: 100%;
+    }
+    
+    .pnl-lamp .fa-3x {
+        font-size: 2rem !important;
+    }
+    
+    .killswitch-toggle {
+        font-size: 0.875rem;
+        padding: 0.5rem 1rem;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .risk-card {
+        background: #2d3748;
+        border-color: #4a5568;
+        color: #e2e8f0;
+    }
+    
+    .risk-card:hover {
+        border-color: #63b3ed;
+    }
+    
+    .capital-bar {
+        background: #4a5568;
+        border-color: #2d3748;
+    }
+    
+    .risk-error {
+        background: #fed7d7;
+        border-color: #feb2b2;
+        color: #9b2c2c;
+    }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+    .lamp-green,
+    .lamp-yellow,
+    .lamp-red {
+        border: 3px solid #000;
+    }
+    
+    .killswitch-toggle {
+        border: 2px solid #000;
+    }
+    
+    .risk-card {
+        border: 2px solid #000;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .status-badge {
+        animation: none;
+    }
+    
+    .risk-card,
+    .risk-actions .btn,
+    .killswitch-toggle {
+        transition: none;
+    }
+    
+    .risk-card:hover,
+    .risk-actions .btn:hover,
+    .killswitch-enabled:hover {
+        transform: none;
+    }
+}

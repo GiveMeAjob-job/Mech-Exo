@@ -667,7 +667,7 @@ class TelegramAlerter:
 🔧 **Version**: `{self.escape_markdown(version)}`
 📅 **Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-⚠️ *Manual review required \\- existing factors remain active*"""
+⚠️ *Manual review required - existing factors remain active*"""
             
             return self.send_message(message)
             
@@ -703,7 +703,7 @@ class TelegramAlerter:
 🚫 **Reason**: {self.escape_markdown(deployment_reason)}
 🔧 **Version**: `{self.escape_markdown(version)}`
 
-🔄 *Factors not deployed \\- existing configuration remains active*"""
+🔄 *Factors not deployed - existing configuration remains active*"""
             
             return self.send_message(message)
             
@@ -764,9 +764,9 @@ class TelegramAlerter:
                 git_info = ""
             
             # Build Markdown V2 message with proper escaping
-            time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S').replace('-', '\\-')
+            time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             message_parts = [
-                "⚖️ *ML Weight Auto\\-Adjusted*",
+                "⚖️ *ML Weight Auto-Adjusted*",
                 "",
                 f"• *Weight*: {old_w:.2f} {direction_emoji} {new_w:.2f}",
                 f"• *Δ Sharpe*: {delta_sharpe:+.3f} \\({sharpe_ml:.3f} vs {sharpe_base:.3f}\\)",
@@ -1151,3 +1151,355 @@ class AlertManager:
             msg += f"💚 Health: {execution_rate:.1%} execution rate" + "\n"
         
         return msg.strip()
+
+
+def send_monthly_loss_alert(mtd_pct: float, threshold_pct: float = -3.0) -> bool:
+    """
+    Send monthly loss alert when monthly threshold is breached
+    
+    Args:
+        mtd_pct: Month-to-date PnL percentage
+        threshold_pct: Monthly threshold percentage (default: -3.0%)
+        
+    Returns:
+        True if alert sent successfully
+    """
+    try:
+        import subprocess
+        
+        # Get current timestamp and commit hash for traceability
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Get Git commit hash for traceability
+        try:
+            git_hash = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], 
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+            commit_info = f" \\(commit `{git_hash}`\\)"
+        except:
+            commit_info = ""
+        
+        # Calculate difference to threshold
+        diff_to_threshold = mtd_pct - threshold_pct
+        
+        # Determine alert level
+        level = AlertLevel.CRITICAL
+        title = f"🛑 MONTHLY STOP-LOSS TRIGGERED: {mtd_pct:+.2f}%"
+        
+        # Build detailed message with proper MarkdownV2 escaping
+        message = f"""🛑 **MONTHLY DRAWDOWN ALERT**
+
+📅 **Month-to-Date**: {mtd_pct:+.3f}%
+🚨 **Threshold**: {threshold_pct}%
+📉 **Breach Amount**: {diff_to_threshold:+.3f}%
+
+⚡ **KILL-SWITCH ACTIVATED**
+🔴 **Trading has been automatically disabled**
+
+🕐 **Time**: {timestamp.replace('-', '-')}{commit_info}
+
+⚠️ *Manual review required to re-enable trading*
+📋 *See run-book for escalation procedures*"""
+        
+        # Verify message length (Telegram limit is 4096 chars)
+        if len(message) > 4096:
+            logger.warning(f"Monthly alert message too long: {len(message)} chars, truncating")
+            message = message[:4093] + "..."
+        
+        # Create alert
+        alert = Alert(
+            alert_type=AlertType.SYSTEM_ALERT,
+            level=level,
+            title=title,
+            message=message,
+            timestamp=datetime.now(),
+            data={
+                'mtd_pct': mtd_pct,
+                'threshold_pct': threshold_pct,
+                'diff_to_threshold': diff_to_threshold,
+                'alert_type': 'monthly_stop_loss',
+                'commit_hash': git_hash if 'git_hash' in locals() else None
+            }
+        )
+        
+        # Send through alert manager
+        try:
+            alert_manager = AlertManager()
+            
+            # Force send critical monthly alerts even during quiet hours
+            success = alert_manager.send_alert_with_escalation(
+                alert,
+                channels=['telegram'],
+                respect_quiet_hours=True,
+                force_send=True  # Always force send for monthly stop-loss
+            )
+            
+            if success:
+                logger.error(f"✅ Monthly loss alert sent: {mtd_pct:+.3f}%")
+            else:
+                logger.error(f"❌ Failed to send monthly loss alert: {mtd_pct:+.3f}%")
+                
+            return success
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize alert manager for monthly alert: {e}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to send monthly loss alert: {e}")
+        return False
+
+
+def send_drill_report(report_path: str, passed: bool) -> bool:
+    """
+    Send rollback drill report via Telegram
+    
+    Args:
+        report_path: Path to drill report Markdown file
+        passed: Whether drill passed (True) or failed (False)
+        
+    Returns:
+        True if alert sent successfully
+    """
+    try:
+        import subprocess
+        from pathlib import Path
+        
+        report_file = Path(report_path)
+        if not report_file.exists():
+            logger.error(f"Drill report file not found: {report_path}")
+            return False
+        
+        # Check file size (Telegram limit is 50MB, but we want ≤ 300KB)
+        file_size = report_file.stat().st_size
+        if file_size > 300 * 1024:  # 300KB
+            logger.warning(f"Drill report file too large: {file_size} bytes (limit: 300KB)")
+            # Could truncate or compress, but for now just warn
+        
+        # Get current timestamp and commit hash for traceability
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Get Git commit hash for traceability
+        try:
+            git_hash = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], 
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+            commit_info = f" \\\\(commit `{git_hash}`\\\\)"
+        except:
+            commit_info = ""
+        
+        # Determine alert level and emoji
+        if passed:
+            level = AlertLevel.INFO
+            result_emoji = "✅"
+            status_text = "PASSED"
+            title = "🔄 Rollback Drill Completed Successfully"
+        else:
+            level = AlertLevel.WARNING
+            result_emoji = "⚠️"
+            status_text = "FAILED"
+            title = "🚨 Rollback Drill Failed"
+        
+        # Extract key info from report for message preview
+        try:
+            with open(report_file, 'r') as f:
+                report_content = f.read()
+            
+            # Parse duration from report
+            duration_match = None
+            for line in report_content.split('\\n'):
+                if 'Duration' in line:
+                    duration_match = line.split('**Duration**:')[1].split('**')[0].strip() if '**Duration**:' in line else None
+                    break
+            
+            duration_str = duration_match or "Unknown"
+            
+        except Exception as e:
+            logger.warning(f"Could not parse report content: {e}")
+            duration_str = "Unknown"
+        
+        # Build detailed message with proper MarkdownV2 escaping
+        dash_escaped = '-'  # No escaping needed for regular dash
+        message = f"""{result_emoji} **ROLLBACK DRILL COMPLETE**
+
+📋 **Result**: {status_text}
+⏱️ **Duration**: {duration_str.replace('-', dash_escaped).replace('.', '.')}
+📅 **Time**: {timestamp.replace('-', dash_escaped)}
+📄 **Report**: `{report_file.name}`
+
+{result_emoji} **Kill-Switch Test Cycle**:
+└ 💾 Backup configuration
+└ 🛑 Disable trading  
+└ ⏳ Wait period
+└ ✅ Restore trading
+
+🕐 **Generated**: {timestamp.replace('-', dash_escaped)}{commit_info}
+
+📊 *Full report attached below*"""
+        
+        # Verify message length (Telegram limit is 4096 chars)
+        if len(message) > 4096:
+            logger.warning(f"Drill alert message too long: {len(message)} chars, truncating")
+            message = message[:4093] + "..."
+        
+        # Create alert
+        alert = Alert(
+            alert_type=AlertType.SYSTEM_INFO,
+            level=level,
+            title=title,
+            message=message,
+            timestamp=datetime.now(),
+            data={
+                'drill_passed': passed,
+                'report_path': str(report_path),
+                'report_size_bytes': file_size,
+                'drill_status': status_text,
+                'report_file': report_file.name,
+                'commit_hash': git_hash if 'git_hash' in locals() else None
+            }
+        )
+        
+        # Send through alert manager
+        try:
+            alert_manager = AlertManager()
+            
+            # Send text alert first
+            text_success = alert_manager.send_alert_with_escalation(
+                alert,
+                channels=['telegram'],
+                respect_quiet_hours=False,  # Drill reports can be sent any time
+                force_send=False
+            )
+            
+            # Send document if Telegram is available
+            document_success = False
+            if 'telegram' in alert_manager.alerters:
+                telegram_alerter = alert_manager.alerters['telegram']
+                
+                # Send the report file as document
+                caption = f"{result_emoji} Rollback Drill Report - {status_text}"
+                document_success = telegram_alerter.send_document(
+                    str(report_file),
+                    caption=caption
+                )
+            
+            overall_success = text_success and document_success
+            
+            if overall_success:
+                logger.info(f"✅ Drill report sent successfully: {status_text}")
+            else:
+                logger.error(f"❌ Partial failure sending drill report: text={text_success}, doc={document_success}")
+                
+            return overall_success
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize alert manager for drill report: {e}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to send drill report: {e}")
+        return False
+
+
+def send_intraday_loss_alert(pnl_pct: float, nav_data: Dict[str, Any], threshold_result: Dict[str, Any]) -> bool:
+    """
+    Send intraday loss alert when PnL threshold is breached
+    
+    Args:
+        pnl_pct: Current PnL percentage
+        nav_data: Complete NAV data dictionary
+        threshold_result: Threshold check results
+        
+    Returns:
+        True if alert sent successfully
+    """
+    try:
+        # Determine alert level based on severity
+        if threshold_result.get('threshold_breached', False):
+            level = AlertLevel.CRITICAL
+            title = f"🚨 CRITICAL DAY LOSS: {pnl_pct:+.2f}%"
+        elif threshold_result.get('warning_level', False):
+            level = AlertLevel.WARNING
+            title = f"⚠️ WARNING DAY LOSS: {pnl_pct:+.2f}%"
+        else:
+            level = AlertLevel.INFO
+            title = f"📊 Intraday PnL Update: {pnl_pct:+.2f}%"
+        
+        # Build detailed message
+        killswitch_status = "ENABLED" if threshold_result.get('killswitch_triggered', False) else "NOT TRIGGERED"
+        action_taken = threshold_result.get('action_taken', 'none')
+        
+        message = f"""🔴 **INTRADAY PnL ALERT**
+
+📊 **Current PnL**: {pnl_pct:+.3f}%
+💰 **Live NAV**: ${nav_data['live_nav']:,.2f}
+📈 **Day Start NAV**: ${nav_data['day_start_nav']:,.2f}
+💸 **PnL Amount**: ${nav_data['pnl_amount']:+,.2f}
+
+🏢 **Portfolio Status**:
+• Positions: {nav_data['position_count']}
+• Gross Exposure: ${nav_data.get('gross_exposure', 0):,.0f}
+• Net Exposure: ${nav_data.get('net_exposure', 0):,.0f}
+
+🚨 **Kill-Switch**: {killswitch_status}
+⚡ **Action**: {action_taken.upper().replace('_', ' ')}
+
+🕐 **Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+
+        # Add top positions if available
+        if nav_data.get('top_positions'):
+            message += "\n\n📈 **Top Positions**:"
+            for i, pos in enumerate(nav_data['top_positions'][:3], 1):
+                pnl_str = f"{pos['unrealized_pnl']:+,.0f}" if pos.get('unrealized_pnl') else "N/A"
+                message += f"\n{i}. {pos['symbol']}: {pos['quantity']:+.0f} @ ${pos.get('current_price', 0):.2f} (${pnl_str})"
+        
+        # Create alert
+        alert = Alert(
+            alert_type=AlertType.SYSTEM_ALERT,
+            level=level,
+            title=title,
+            message=message,
+            timestamp=datetime.now(),
+            data={
+                'pnl_pct': pnl_pct,
+                'live_nav': nav_data['live_nav'],
+                'day_start_nav': nav_data['day_start_nav'],
+                'pnl_amount': nav_data['pnl_amount'],
+                'position_count': nav_data['position_count'],
+                'killswitch_triggered': threshold_result.get('killswitch_triggered', False),
+                'threshold_breached': threshold_result.get('threshold_breached', False),
+                'warning_level': threshold_result.get('warning_level', False),
+                'action_taken': action_taken
+            }
+        )
+        
+        # Send through alert manager
+        try:
+            alert_manager = AlertManager()
+            
+            # Force send critical alerts even during quiet hours
+            force_send = level == AlertLevel.CRITICAL
+            
+            success = alert_manager.send_alert_with_escalation(
+                alert,
+                channels=['telegram'],
+                respect_quiet_hours=True,
+                force_send=force_send
+            )
+            
+            if success:
+                logger.info(f"✅ Intraday loss alert sent: {pnl_pct:+.3f}%")
+            else:
+                logger.error(f"❌ Failed to send intraday loss alert: {pnl_pct:+.3f}%")
+                
+            return success
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize alert manager: {e}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to send intraday loss alert: {e}")
+        return False

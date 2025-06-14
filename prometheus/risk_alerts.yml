@@ -1,0 +1,240 @@
+# Prometheus Alerting Rules for Risk Management
+# Phase P11 Week 2 - SLO Error-Budget & Critical Alerts
+
+groups:
+  - name: risk_slo_alerts
+    rules:
+      # Critical: Error Budget Exhaustion
+      - alert: ErrorBudgetBurnHigh
+        expr: risk:error_budget_remaining < 98
+        for: 5m
+        labels:
+          severity: pager
+          env: prod
+          team: trading_ops
+          slo_type: availability
+        annotations:
+          summary: "Risk system error budget burning too fast"
+          description: |
+            Error budget remaining is {{ $value | printf "%.2f" }}% (threshold: 98%).
+            This indicates the risk system has been down for more than expected.
+            
+            Current availability: {{ query "risk:availability_24h" | first | value | printf "%.2f" }}%
+            Downtime in last 24h: {{ query "risk:downtime_minutes_24h" | first | value | printf "%.0f" }} minutes
+            
+            Runbook: https://docs.mech-exo.com/runbooks/error-budget-burn
+          runbook_url: "https://docs.mech-exo.com/runbooks/error-budget-burn"
+
+      # Critical: System Down
+      - alert: RiskSystemDown
+        expr: risk_ops_ok{env="prod"} == 0
+        for: 1m
+        labels:
+          severity: pager
+          env: prod
+          team: trading_ops
+        annotations:
+          summary: "Risk system is completely down"
+          description: |
+            The risk monitoring system has been down for more than 1 minute.
+            This is a critical trading infrastructure failure.
+            
+            Immediate actions required:
+            1. Check /healthz and /riskz endpoints
+            2. Verify dashboard connectivity
+            3. Check kill-switch status
+            
+            Runbook: https://docs.mech-exo.com/runbooks/system-down
+          runbook_url: "https://docs.mech-exo.com/runbooks/system-down"
+
+      # Warning: Error Budget Low
+      - alert: ErrorBudgetLow
+        expr: risk:error_budget_remaining < 99
+        for: 10m
+        labels:
+          severity: warning
+          env: prod
+          team: trading_ops
+          slo_type: availability
+        annotations:
+          summary: "Risk system error budget running low"
+          description: |
+            Error budget remaining: {{ $value | printf "%.2f" }}% (threshold: 99%)
+            
+            Monitor closely for:
+            - Increased downtime patterns
+            - Performance degradation
+            - Infrastructure issues
+            
+            Consider postponing non-critical deployments.
+
+  - name: risk_operational_alerts
+    rules:
+      # High VaR Utilization
+      - alert: VaRUtilizationHigh
+        expr: risk_var_95_utilization_pct > 85
+        for: 5m
+        labels:
+          severity: warning
+          env: prod
+          team: risk_management
+        annotations:
+          summary: "VaR utilization approaching limits"
+          description: |
+            VaR 95% utilization: {{ $value | printf "%.1f" }}% (threshold: 85%)
+            VaR 99% utilization: {{ query "risk_var_99_utilization_pct" | first | value | printf "%.1f" }}%
+            
+            Current exposure: ${{ query "risk_total_exposure_usd" | first | value | printf "%.0f" }}
+            Position count: {{ query "risk_position_count" | first | value | printf "%.0f" }}
+
+      # Critical VaR Breach
+      - alert: VaRLimitBreach
+        expr: risk_var_95_utilization_pct > 95
+        for: 2m
+        labels:
+          severity: pager
+          env: prod
+          team: risk_management
+        annotations:
+          summary: "VaR limits breached - immediate action required"
+          description: |
+            VaR 95% utilization: {{ $value | printf "%.1f" }}% (limit: 95%)
+            
+            IMMEDIATE ACTIONS:
+            1. Review large positions
+            2. Consider position reduction
+            3. Check for data quality issues
+            4. Notify risk committee
+
+      # Data Staleness Alert
+      - alert: RiskDataStale
+        expr: risk_data_age_seconds > 600
+        for: 3m
+        labels:
+          severity: warning
+          env: prod
+          team: data_engineering
+        annotations:
+          summary: "Risk data is stale"
+          description: |
+            Risk data age: {{ $value | printf "%.0f" }} seconds (threshold: 600s)
+            
+            This may indicate:
+            - Data pipeline issues
+            - Market data feed problems
+            - Processing delays
+
+  - name: risk_performance_alerts
+    rules:
+      # High Response Time
+      - alert: RiskAPISlowResponse
+        expr: risk:response_time_95p_5m > 200
+        for: 3m
+        labels:
+          severity: warning
+          env: prod
+          team: platform_engineering
+        annotations:
+          summary: "Risk API response time degraded"
+          description: |
+            95th percentile response time: {{ $value | printf "%.0f" }}ms (threshold: 200ms)
+            
+            Performance degradation may impact:
+            - Real-time monitoring
+            - Trading decisions
+            - Alert delivery
+
+      # High Error Rate
+      - alert: RiskAPIErrorRate
+        expr: risk:error_rate_5m > 5
+        for: 5m
+        labels:
+          severity: warning
+          env: prod
+          team: platform_engineering
+        annotations:
+          summary: "Risk API error rate elevated"
+          description: |
+            Error rate: {{ $value | printf "%.2f" }}% (threshold: 5%)
+            
+            Check for:
+            - Application errors
+            - Database connectivity
+            - External service issues
+
+  - name: risk_business_alerts
+    rules:
+      # Large Daily Loss
+      - alert: LargeDailyLoss
+        expr: risk_today_pnl_pct < -2.0
+        for: 5m
+        labels:
+          severity: warning
+          env: prod
+          team: portfolio_management
+        annotations:
+          summary: "Large daily loss detected"
+          description: |
+            Today's P&L: {{ $value | printf "%.2f" }}% (threshold: -2.0%)
+            Month P&L: {{ query "risk_month_pnl_pct" | first | value | printf "%.2f" }}%
+            
+            Review:
+            - Position attribution
+            - Risk factor exposure
+            - Market regime changes
+
+      # Monthly Loss Limit
+      - alert: MonthlyLossLimit
+        expr: risk_month_pnl_pct < -5.0
+        for: 10m
+        labels:
+          severity: pager
+          env: prod
+          team: portfolio_management
+        annotations:
+          summary: "Monthly loss limit approached"
+          description: |
+            Month-to-date P&L: {{ $value | printf "%.2f" }}% (threshold: -5.0%)
+            
+            ESCALATION REQUIRED:
+            - Risk committee notification
+            - Position review meeting
+            - Potential trading halt consideration
+
+  - name: risk_infrastructure_alerts
+    rules:
+      # Exporter Down
+      - alert: RiskExporterDown
+        expr: up{job="risk-exporter"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          env: prod
+          team: platform_engineering
+        annotations:
+          summary: "Risk metrics exporter is down"
+          description: |
+            The Prometheus risk exporter has been unreachable for more than 2 minutes.
+            
+            This affects:
+            - Risk monitoring visibility
+            - SLO tracking
+            - Alert delivery
+
+      # Missing Metrics
+      - alert: RiskMetricsMissing
+        expr: absent(risk_ops_ok{env="prod"})
+        for: 5m
+        labels:
+          severity: warning
+          env: prod
+          team: platform_engineering
+        annotations:
+          summary: "Risk metrics not being reported"
+          description: |
+            Key risk metrics are missing from Prometheus.
+            
+            Check:
+            - Risk exporter configuration
+            - Network connectivity
+            - Target service health

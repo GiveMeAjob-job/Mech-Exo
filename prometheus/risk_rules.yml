@@ -1,0 +1,110 @@
+# Prometheus Recording Rules for Risk Management
+# Phase P11 Week 2 - SLO Error-Budget Implementation
+
+groups:
+  - name: risk_slo_rules
+    interval: 30s
+    rules:
+      # Error Budget Recording Rule
+      # Calculates remaining error budget as percentage
+      # Formula: 100 - (downtime_minutes_in_24h * 100 / total_minutes_in_24h)
+      - record: risk:error_budget_remaining
+        expr: >
+          100 - (
+            sum_over_time((1 - risk_ops_ok{env="prod"})[24h:1m]) * 100 / 1440
+          )
+        labels:
+          env: "prod"
+          slo_type: "availability"
+
+      # Error Budget Burn Rate (per hour)
+      - record: risk:error_budget_burn_rate_1h
+        expr: >
+          sum_over_time((1 - risk_ops_ok{env="prod"})[1h:1m]) * 100 / 60
+        labels:
+          env: "prod"
+          slo_type: "availability"
+
+      # Error Budget Burn Rate (per 5 minutes)
+      - record: risk:error_budget_burn_rate_5m
+        expr: >
+          sum_over_time((1 - risk_ops_ok{env="prod"})[5m:1m]) * 100 / 5
+        labels:
+          env: "prod"
+          slo_type: "availability"
+
+      # Availability percentage over 24h
+      - record: risk:availability_24h
+        expr: >
+          avg_over_time(risk_ops_ok{env="prod"}[24h]) * 100
+        labels:
+          env: "prod"
+          slo_type: "availability"
+
+      # Downtime minutes in last 24h
+      - record: risk:downtime_minutes_24h
+        expr: >
+          sum_over_time((1 - risk_ops_ok{env="prod"})[24h:1m])
+        labels:
+          env: "prod"
+          slo_type: "availability"
+
+  - name: risk_performance_rules
+    interval: 30s
+    rules:
+      # Response time SLI (if available)
+      - record: risk:response_time_95p_5m
+        expr: >
+          histogram_quantile(0.95, 
+            rate(http_request_duration_seconds_bucket{job="risk-api"}[5m])
+          ) * 1000
+        labels:
+          env: "prod"
+          slo_type: "latency"
+
+      # Error rate SLI
+      - record: risk:error_rate_5m
+        expr: >
+          rate(http_requests_total{job="risk-api",status=~"5.."}[5m]) / 
+          rate(http_requests_total{job="risk-api"}[5m]) * 100
+        labels:
+          env: "prod"
+          slo_type: "errors"
+
+  - name: risk_operational_rules
+    interval: 60s
+    rules:
+      # Risk system health score (composite)
+      - record: risk:health_score
+        expr: >
+          (
+            risk_ops_ok{env="prod"} * 40 +
+            (risk_var_95_utilization_pct < 80) * 30 +
+            (risk_var_99_utilization_pct < 90) * 20 +
+            (risk_alert_level == 0) * 10
+          ) / 100
+        labels:
+          env: "prod"
+
+      # Data freshness indicator
+      - record: risk:data_freshness_ok
+        expr: >
+          risk_data_age_seconds < 300
+        labels:
+          env: "prod"
+
+      # Position risk indicator
+      - record: risk:position_risk_level
+        expr: >
+          if(
+            risk_var_95_utilization_pct > 90, 3,
+            if(
+              risk_var_95_utilization_pct > 75, 2,
+              if(
+                risk_var_95_utilization_pct > 50, 1,
+                0
+              )
+            )
+          )
+        labels:
+          env: "prod"

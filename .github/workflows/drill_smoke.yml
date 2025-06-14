@@ -1,0 +1,244 @@
+name: "Rollback Drill Smoke Test"
+
+on:
+  push:
+    branches: [ main, release/* ]
+    paths:
+      - 'scripts/rollback_drill.py'
+      - 'mech_exo/cli/**'
+      - 'config/killswitch.yml'
+      - '.github/workflows/drill_smoke.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'scripts/rollback_drill.py'
+      - 'mech_exo/cli/**'
+      - 'config/killswitch.yml'
+  workflow_dispatch:
+    inputs:
+      test_failure_scenario:
+        description: 'Test failure scenario'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  TELEGRAM_DRY_RUN: 'true'
+
+jobs:
+  drill-smoke-test:
+    name: "Rollback Drill Smoke Test"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: "📥 Checkout Code"
+        uses: actions/checkout@v4
+        
+      - name: "🐍 Setup Python"
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          
+      - name: "📦 Install Dependencies"
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pyyaml
+          
+      - name: "🔧 Setup Test Environment"
+        run: |
+          # Create necessary directories
+          mkdir -p config data/processed data/raw
+          
+          # Create minimal killswitch config for testing
+          cat > config/killswitch.yml << EOF
+          trading_enabled: true
+          reason: "System operational"
+          last_updated: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          updated_by: "ci_test"
+          history: []
+          EOF
+          
+          # Create minimal project structure
+          touch mech_exo/__init__.py
+          mkdir -p mech_exo/cli
+          touch mech_exo/cli/__init__.py
+          
+          # Show initial state
+          echo "📊 Initial killswitch config:"
+          cat config/killswitch.yml
+          
+      - name: "✅ Step 1: Successful Drill (Dry-Run)"
+        id: successful_drill
+        run: |
+          echo "🧪 Running successful drill scenario..."
+          
+          # Run drill with minimal wait time for CI speed
+          python scripts/rollback_drill.py --dry-run --wait 1 --verbose
+          
+          # Check exit code
+          if [ $? -eq 0 ]; then
+            echo "✅ Drill completed successfully"
+            echo "drill_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Drill failed unexpectedly"
+            echo "drill_success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Verify report was generated
+          if ls drill_*.md 1> /dev/null 2>&1; then
+            echo "📄 Drill report generated:"
+            ls -la drill_*.md
+            echo "report_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ No drill report found"
+            echo "report_exists=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+      - name: "❌ Step 2: Failure Scenario Test"
+        id: failure_test
+        if: github.event.inputs.test_failure_scenario == 'true' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        run: |
+          echo "🚨 Testing failure scenario..."
+          
+          # Lock killswitch config to simulate failure
+          chmod 444 config/killswitch.yml
+          
+          # This should fail due to locked config
+          python scripts/rollback_drill.py --dry-run --wait 1 --verbose
+          
+          drill_exit_code=$?
+          
+          # Restore permissions
+          chmod 644 config/killswitch.yml
+          
+          if [ $drill_exit_code -ne 0 ]; then
+            echo "✅ Drill correctly failed when config is locked"
+            echo "failure_test_passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Drill should have failed but didn't"
+            echo "failure_test_passed=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: "📊 Validate Report Content"
+        run: |
+          echo "📋 Validating drill report content..."
+          
+          # Find the most recent report
+          REPORT_FILE=$(ls -t drill_*.md | head -n1)
+          
+          if [ -f "$REPORT_FILE" ]; then
+            echo "📄 Found report: $REPORT_FILE"
+            
+            # Check required sections
+            echo "🔍 Checking report structure..."
+            
+            if grep -q "# Rollback Drill Report" "$REPORT_FILE"; then
+              echo "✅ Report header found"
+            else
+              echo "❌ Missing report header"
+              exit 1
+            fi
+            
+            if grep -q "## Summary" "$REPORT_FILE"; then
+              echo "✅ Summary section found"
+            else
+              echo "❌ Missing summary section"
+              exit 1
+            fi
+            
+            if grep -q "## Step-by-Step Results" "$REPORT_FILE"; then
+              echo "✅ Step results section found"
+            else
+              echo "❌ Missing step results section"
+              exit 1
+            fi
+            
+            if grep -q "PASS\|FAIL" "$REPORT_FILE"; then
+              echo "✅ Result status found"
+            else
+              echo "❌ Missing result status"
+              exit 1
+            fi
+            
+            # Check for 4 timestamps (A, B, C, D steps)
+            STEP_COUNT=$(grep -E "Step [ABCD]" "$REPORT_FILE" | wc -l)
+            if [ "$STEP_COUNT" -ge 4 ]; then
+              echo "✅ All 4 drill steps found ($STEP_COUNT steps)"
+            else
+              echo "❌ Missing drill steps (found: $STEP_COUNT, expected: ≥4)"
+              exit 1
+            fi
+            
+            echo "📊 Report validation passed"
+          else
+            echo "❌ No report file found for validation"
+            exit 1
+          fi
+          
+      - name: "🧹 Cleanup and Final State"
+        run: |
+          echo "🧹 Cleaning up test environment..."
+          
+          # Show final killswitch state
+          echo "📊 Final killswitch config:"
+          cat config/killswitch.yml
+          
+          # Clean up backup files
+          rm -f config/killswitch_backup_*.yml
+          
+          # Count generated reports
+          REPORT_COUNT=$(ls drill_*.md 2>/dev/null | wc -l)
+          echo "📄 Generated $REPORT_COUNT drill reports"
+          
+      - name: "📤 Upload Drill Report Artifacts"
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drill-reports-${{ github.run_number }}
+          path: drill_*.md
+          retention-days: 30
+          
+      - name: "📊 Test Summary"
+        if: always()
+        run: |
+          echo "## 🚀 Rollback Drill Smoke Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.successful_drill.outputs.drill_success }}" = "true" ]; then
+            echo "✅ **Successful Drill**: PASS" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Successful Drill**: FAIL" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.successful_drill.outputs.report_exists }}" = "true" ]; then
+            echo "✅ **Report Generation**: PASS" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Report Generation**: FAIL" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ github.event.inputs.test_failure_scenario }}" = "true" ]; then
+            if [ "${{ steps.failure_test.outputs.failure_test_passed }}" = "true" ]; then
+              echo "✅ **Failure Scenario**: PASS" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Failure Scenario**: FAIL" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⏭️ **Failure Scenario**: SKIPPED" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📄 Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Drill reports are available as downloadable artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Reports include complete step-by-step execution logs" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⏱️ Performance" >> $GITHUB_STEP_SUMMARY
+          echo "- Drill execution time: ~2 seconds (dry-run mode)" >> $GITHUB_STEP_SUMMARY
+          echo "- Total CI time: < 4 minutes target" >> $GITHUB_STEP_SUMMARY

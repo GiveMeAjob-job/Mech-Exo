@@ -1,0 +1,17 @@
+# Kill-Switch Configuration
+# Controls whether trading is enabled system-wide
+
+trading_enabled: true
+reason: "System operational"
+timestamp: "2025-01-12T00:00:00"
+last_modified_by: "system"
+auto_triggered: false
+trigger_source: null  # manual, intraday_pnl, monthly_drawdown, etc.
+
+# Kill-switch history (last 10 events)
+history:
+  - timestamp: "2025-01-12T00:00:00"
+    action: "enable"
+    reason: "System initialization"
+    triggered_by: "system"
+    auto_triggered: false

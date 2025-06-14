@@ -1,0 +1,32 @@
+{
+  "test_summary": {
+    "start_time": "2025-06-13T16:07:05.200694",
+    "end_time": "2025-06-13T16:07:27.416553",
+    "duration_seconds": 22.215859,
+    "success_rate": 100.0
+  },
+  "connection": {
+    "status": "connected",
+    "host": "127.0.0.1",
+    "port": 7497
+  },
+  "orders": {
+    "tested": 10,
+    "successful": 10,
+    "failed": 0,
+    "avg_response_ms": 103.81431579589844,
+    "max_response_ms": 107.78522491455078
+  },
+  "data_quality": 100.0,
+  "kill_switch_tested": true,
+  "errors": [],
+  "performance_metrics": {
+    "market_data": {
+      "symbols_tested": 5,
+      "data_points_received": 5,
+      "avg_latency_ms": 23.17800521850586,
+      "data_quality_score": 100.0,
+      "feed_errors": []
+    }
+  }
+}

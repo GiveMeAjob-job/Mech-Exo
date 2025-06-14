@@ -1,0 +1,81 @@
+# Load Test Configuration
+# Defines target rates, ramp-up curves, and test duration
+
+# Target request rate (requests per second)
+target_rate: 50
+
+# Ramp-up duration in seconds
+ramp_duration: 60
+
+# Total test duration in seconds (1 hour)
+test_duration: 3600
+
+# Maximum concurrent workers
+max_concurrent: 100
+
+# Base URL for the API
+base_url: "http://localhost:8050"
+
+# Use paper trading mode
+paper_trading: true
+
+# Error rate threshold (fail-fast if exceeded)
+error_threshold: 0.03  # 3%
+
+# Test scenarios
+scenarios:
+  - name: "steady_load"
+    target_rate: 50
+    duration: 3600
+    ramp_duration: 60
+    
+  - name: "spike_test" 
+    target_rate: 100
+    duration: 300
+    ramp_duration: 10
+    
+  - name: "endurance"
+    target_rate: 30
+    duration: 7200  # 2 hours
+    ramp_duration: 120
+
+# Order templates for load testing
+order_templates:
+  - symbol: "AAPL"
+    side: "buy"
+    quantity: 100
+    weight: 0.3
+    
+  - symbol: "GOOGL"
+    side: "sell" 
+    quantity: 50
+    weight: 0.2
+    
+  - symbol: "MSFT"
+    side: "buy"
+    quantity: 75
+    weight: 0.2
+    
+  - symbol: "TSLA"
+    side: "sell"
+    quantity: 25
+    weight: 0.15
+    
+  - symbol: "NVDA"
+    side: "buy"
+    quantity: 40
+    weight: 0.15
+
+# Monitoring configuration
+monitoring:
+  log_interval: 10  # seconds
+  metrics_export_interval: 15  # seconds
+  health_check_interval: 30  # seconds
+
+# Pass/fail criteria
+pass_criteria:
+  max_error_rate: 0.01  # 1%
+  max_95p_latency_ms: 400
+  min_success_rate: 0.99  # 99%
+  max_cpu_usage: 0.80  # 80%
+  max_memory_usage: 0.75  # 75%

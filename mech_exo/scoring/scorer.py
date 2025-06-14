@@ -94,6 +94,18 @@ class IdeaScorer(BaseScorer):
                 else:
                     logger.warning("ML scores not available - using traditional scores only")
             
+            # Load and integrate rotational alpha scores if enabled
+            use_rot_alpha = kwargs.get('use_rot_alpha', False)
+            rot_alpha_weight = kwargs.get('rot_alpha_weight', 0.2)
+            if use_rot_alpha:
+                rot_alpha_scores = self._load_rotational_alpha_scores(symbols)
+                if rot_alpha_scores is not None:
+                    adjusted_scores = self._integrate_rotational_alpha_scores(
+                        adjusted_scores, rot_alpha_scores, rot_alpha_weight, data)
+                    logger.info(f"Integrated rotational alpha scores with weight {rot_alpha_weight:.1%}")
+                else:
+                    logger.warning("Rotational alpha scores not available - using traditional scores only")
+            
             # Rank and format results
             ranked_results = self._rank_results(adjusted_scores, data)
             
@@ -105,7 +117,7 @@ class IdeaScorer(BaseScorer):
             logger.error(f"Scoring failed: {e}")
             raise ScoringError(f"Scoring failed: {e}")
     
-    def rank_universe(self, symbols: Optional[List[str]] = None) -> pd.DataFrame:
+    def rank_universe(self, symbols: Optional[List[str]] = None, **kwargs) -> pd.DataFrame:
         """Rank entire universe or specified symbols"""
         if symbols is None:
             # Get symbols from universe
@@ -114,7 +126,7 @@ class IdeaScorer(BaseScorer):
                 raise ScoringError("No symbols in universe")
             symbols = universe['symbol'].tolist()
         
-        return self.score(symbols)
+        return self.score(symbols, **kwargs)
     
     def _prepare_data(self, symbols: List[str]) -> pd.DataFrame:
         """Prepare data for scoring"""
@@ -423,6 +435,106 @@ class IdeaScorer(BaseScorer):
         """Get top N investment ideas"""
         ranking = self.rank_universe(symbols)
         return ranking.head(n)
+    
+    def _load_rotational_alpha_scores(self, symbols: List[str]) -> Optional[pd.DataFrame]:
+        """Load rotational alpha scores from CSV file"""
+        try:
+            rot_alpha_file = Path("data/rot_alpha_scores.csv")
+            
+            if not rot_alpha_file.exists():
+                logger.warning(f"Rotational alpha scores file not found: {rot_alpha_file}")
+                return None
+                
+            rot_alpha_df = pd.read_csv(rot_alpha_file)
+            
+            # Filter for requested symbols and map sector ETFs to sectors
+            sector_mapping = {
+                'XLK': 'Technology',
+                'XLF': 'Financials', 
+                'XLV': 'Healthcare',
+                'XLI': 'Industrials',
+                'XLE': 'Energy',
+                'XLB': 'Materials',
+                'XLU': 'Utilities',
+                'XLP': 'ConsumerStaples',
+                'XLY': 'ConsumerDiscretionary',
+                'XLRE': 'RealEstate',
+                'XLC': 'Communication'
+            }
+            
+            # For symbols that don't have direct rotational alpha scores,
+            # use sector mapping to assign scores
+            result_scores = []
+            
+            for symbol in symbols:
+                # Try direct match first
+                direct_match = rot_alpha_df[rot_alpha_df['symbol'] == symbol]
+                if not direct_match.empty:
+                    result_scores.append(direct_match.iloc[0])
+                else:
+                    # Try to map by sector (simplified - would need sector lookup in production)
+                    # For now, assign neutral score for unmapped symbols
+                    result_scores.append({
+                        'symbol': symbol,
+                        'momentum_score': 0.0,
+                        'signal': 'NEUTRAL',
+                        'weight': 1.0 / len(symbols),
+                        'sector': 'Unknown'
+                    })
+            
+            result_df = pd.DataFrame(result_scores)
+            logger.info(f"Loaded rotational alpha scores for {len(result_df)} symbols")
+            
+            return result_df
+            
+        except Exception as e:
+            logger.error(f"Failed to load rotational alpha scores: {e}")
+            return None
+    
+    def _integrate_rotational_alpha_scores(self, base_scores: pd.DataFrame, 
+                                         rot_alpha_scores: pd.DataFrame,
+                                         rot_alpha_weight: float,
+                                         data: pd.DataFrame) -> pd.DataFrame:
+        """Integrate rotational alpha scores with base factor scores"""
+        try:
+            # Merge scores by symbol
+            merged = base_scores.merge(rot_alpha_scores[['symbol', 'momentum_score', 'signal']], 
+                                     on='symbol', how='left')
+            
+            # Fill missing rotational alpha scores with neutral (0.0)
+            merged['momentum_score'] = merged['momentum_score'].fillna(0.0)
+            merged['signal'] = merged['signal'].fillna('NEUTRAL')
+            
+            # Normalize momentum scores to same scale as composite_score
+            momentum_std = merged['momentum_score'].std()
+            if momentum_std > 0:
+                normalized_momentum = merged['momentum_score'] / momentum_std
+            else:
+                normalized_momentum = merged['momentum_score']
+            
+            # Calculate integrated score
+            base_weight = 1.0 - rot_alpha_weight
+            merged['rot_alpha_score'] = normalized_momentum
+            merged['integrated_score'] = (
+                base_weight * merged['composite_score'] + 
+                rot_alpha_weight * normalized_momentum
+            )
+            
+            # Update composite score with integrated value
+            merged['composite_score'] = merged['integrated_score']
+            
+            # Add rotational alpha metadata
+            merged['rot_alpha_weight'] = rot_alpha_weight
+            merged['uses_rot_alpha'] = True
+            
+            logger.info(f"Integrated rotational alpha: weight={rot_alpha_weight:.1%}, "
+                       f"symbols={len(merged)}")
+            
+            return merged
+            
+        except Exception as e:
+            logger.error(f"Failed to integrate rotational alpha scores: {e}")
+            return base_scores
     
     def close(self):
         """Close database connections"""

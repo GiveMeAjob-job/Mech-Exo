@@ -375,6 +375,33 @@ def get_health_data() -> Dict[str, any]:
         )
         health['risk_ok'] = risk_ok
         
+        # Add kill-switch status and intraday PnL (Day 2 Module 4)
+        try:
+            from ..cli.killswitch import get_kill_switch_status
+            from ..reporting.pnl_live import get_live_nav
+            
+            # Get kill-switch status
+            killswitch_status = get_kill_switch_status()
+            health['trading_enabled'] = killswitch_status.get('trading_enabled', True)
+            health['killswitch_reason'] = killswitch_status.get('reason', 'System operational')
+            
+            # Get live PnL data
+            nav_data = get_live_nav()
+            health['day_loss_pct'] = nav_data.get('pnl_pct', 0.0)
+            health['day_loss_ok'] = nav_data.get('pnl_pct', 0.0) > -0.8  # -0.8% threshold
+            health['live_nav'] = nav_data.get('live_nav', 0.0)
+            health['day_start_nav'] = nav_data.get('day_start_nav', 0.0)
+            
+        except Exception as e:
+            logger.warning(f"Failed to get kill-switch/PnL data for health endpoint: {e}")
+            # Provide safe defaults
+            health['trading_enabled'] = True
+            health['killswitch_reason'] = 'Status unavailable'
+            health['day_loss_pct'] = 0.0
+            health['day_loss_ok'] = True
+            health['live_nav'] = 0.0
+            health['day_start_nav'] = 0.0
+        
         # Add backtest metrics to health data
         backtest_metrics = get_latest_backtest_metrics()
         health.update(backtest_metrics)

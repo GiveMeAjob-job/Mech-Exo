@@ -176,6 +176,18 @@ class OrderRouter:
 
             logger.info(f"Routing order: {order.symbol} {order.quantity} {order.order_type.value}")
 
+            # Step 0: Kill-switch check (highest priority)
+            with execution_timer(self.execution_logger, "killswitch_check", order_id=order.order_id):
+                if not self._check_trading_enabled():
+                    result = RoutingResult(
+                        decision=RoutingDecision.REJECT,
+                        original_order=order,
+                        rejection_reason="Trading disabled by kill-switch"
+                    )
+                    self._log_routing_decision(order, result, "killswitch_blocked")
+                    self._notify_routing_callbacks(result)
+                    return result
+
             # Step 1: Live trading authorization (if needed)
             with execution_timer(self.execution_logger, "authorization_check", order_id=order.order_id):
                 auth_result = await self._check_live_trading_authorization()
@@ -530,6 +542,38 @@ class OrderRouter:
             self.daily_order_count = 0
             self.last_reset_date = today
             logger.info("Daily order counter reset")
+    
+    def _check_trading_enabled(self) -> bool:
+        """Check if trading is enabled via kill-switch"""
+        try:
+            from ..cli.killswitch import is_trading_enabled
+            enabled = is_trading_enabled()
+            
+            if not enabled:
+                logger.warning("🚨 Trading disabled by kill-switch - blocking order")
+                
+                # Log structured event
+                self.execution_logger.system_event(
+                    system="killswitch",
+                    status="blocked",
+                    message="Order blocked by kill-switch",
+                    trading_enabled=False
+                )
+            
+            return enabled
+            
+        except Exception as e:
+            logger.error(f"Kill-switch check failed: {e}")
+            # Fail-safe: if kill-switch check fails, allow trading to continue
+            # but log the error for investigation
+            self.execution_logger.system_event(
+                system="killswitch",
+                status="error",
+                message=f"Kill-switch check failed: {e}",
+                trading_enabled=True,
+                error=str(e)
+            )
+            return True
 
     def _on_order_update(self, order: Order) -> None:
         """Handle order updates from broker"""

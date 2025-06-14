@@ -1,0 +1,85 @@
+{
+  "test_run": {
+    "start_time": "2025-06-13T11:45:46.596493",
+    "end_time": "2025-06-13T11:46:01.724838",
+    "duration_seconds": 15.128345,
+    "environment": "staging"
+  },
+  "summary": {
+    "total_tests": 5,
+    "passed": 3,
+    "failed": 2,
+    "success_rate": 60.0
+  },
+  "test_results": [
+    {
+      "test": "kill_switch_drill",
+      "success": true,
+      "message": "Mock drill completed successfully",
+      "timestamp": "2025-06-13T11:45:51.657007",
+      "data": {
+        "duration": "5s",
+        "output": "Mock kill-switch drill executed\nStep A: Backup created\nStep B: Trading disabled\nStep C: Wait period (5s)\nStep D: Trading restored\nDrill completed successfully\n"
+      }
+    },
+    {
+      "test": "intraday_sentinel",
+      "success": true,
+      "message": "PnL simulation: -0.5%",
+      "timestamp": "2025-06-13T11:45:53.675329",
+      "data": {
+        "api_ok": true,
+        "telegram_ok": true
+      }
+    },
+    {
+      "test": "monthly_guard",
+      "success": true,
+      "message": "MTD simulation: -2.5%",
+      "timestamp": "2025-06-13T11:45:55.688243",
+      "data": {
+        "api_ok": true,
+        "telegram_ok": true
+      }
+    },
+    {
+      "test": "grafana_dashboard",
+      "success": false,
+      "message": "Grafana connection error: HTTPConnectionPool(host='localhost', port=3000): Max retries exceeded with url: /api/health (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x1079faeb0>: Failed to establish a new connection: [Errno 61] Connection refused'))",
+      "timestamp": "2025-06-13T11:45:57.697785",
+      "data": {}
+    },
+    {
+      "test": "risk_api_endpoints",
+      "success": false,
+      "message": "API endpoints: 0/4 OK",
+      "timestamp": "2025-06-13T11:45:59.719582",
+      "data": {
+        "/healthz": {
+          "error": "HTTPConnectionPool(host='localhost', port=8050): Max retries exceeded with url: /healthz (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x107a6eb50>: Failed to establish a new connection: [Errno 61] Connection refused'))",
+          "success": false
+        },
+        "/riskz": {
+          "error": "HTTPConnectionPool(host='localhost', port=8050): Max retries exceeded with url: /riskz (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x107a795b0>: Failed to establish a new connection: [Errno 61] Connection refused'))",
+          "success": false
+        },
+        "/api/risk/current": {
+          "error": "HTTPConnectionPool(host='localhost', port=8050): Max retries exceeded with url: /api/risk/current (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x107a79f70>: Failed to establish a new connection: [Errno 61] Connection refused'))",
+          "success": false
+        },
+        "/api/positions/summary": {
+          "error": "HTTPConnectionPool(host='localhost', port=8050): Max retries exceeded with url: /api/positions/summary (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x107a79d00>: Failed to establish a new connection: [Errno 61] Connection refused'))",
+          "success": false
+        }
+      }
+    }
+  ],
+  "telegram_messages": [],
+  "api_responses": [],
+  "environment_info": {
+    "staging_url": "http://localhost:8050",
+    "grafana_url": "http://localhost:3000",
+    "telegram_enabled": false,
+    "mech_exo_available": false
+  }
+}

@@ -581,6 +581,306 @@ class TradingCostAnalyzer:
         
         return html
     
+    def analyze_commission_accuracy(self, start_date: date, end_date: date) -> Dict[str, Any]:
+        """
+        Analyze commission estimation accuracy vs actual broker commissions
+        
+        Args:
+            start_date: Analysis start date
+            end_date: Analysis end date
+            
+        Returns:
+            Dictionary with commission accuracy analysis
+        """
+        logger.info(f"Analyzing commission accuracy from {start_date} to {end_date}")
+        
+        try:
+            # Get fills with commission source information
+            query = """
+            SELECT 
+                fill_id,
+                symbol,
+                quantity,
+                fill_price,
+                original_commission_usd as estimated_commission,
+                commission_usd as actual_commission,
+                commission_source,
+                fill_time,
+                last_reconciled_at,
+                (quantity * fill_price) as notional_value
+            FROM fills 
+            WHERE DATE(fill_time) BETWEEN ? AND ?
+            AND commission_source = 'broker'
+            AND original_commission_usd IS NOT NULL
+            ORDER BY fill_time
+            """
+            
+            result = self.storage.conn.execute(query, [
+                start_date.isoformat(), 
+                end_date.isoformat()
+            ]).fetchall()
+            
+            if not result:
+                logger.warning("No reconciled fills found for commission accuracy analysis")
+                return self._empty_commission_analysis()
+            
+            # Convert to DataFrame
+            columns = ['fill_id', 'symbol', 'quantity', 'fill_price', 'estimated_commission',
+                      'actual_commission', 'commission_source', 'fill_time', 'last_reconciled_at', 'notional_value']
+            df = pd.DataFrame(result, columns=columns)
+            
+            # Calculate differences and error metrics
+            df['commission_diff'] = df['actual_commission'] - df['estimated_commission']
+            df['commission_error_pct'] = (df['commission_diff'] / df['estimated_commission'] * 100).fillna(0)
+            df['commission_error_bps'] = df['commission_diff'] / df['notional_value'] * 10000
+            df['abs_commission_diff'] = df['commission_diff'].abs()
+            df['abs_error_pct'] = df['commission_error_pct'].abs()
+            
+            # Convert timestamps
+            df['fill_time'] = pd.to_datetime(df['fill_time'])
+            df['last_reconciled_at'] = pd.to_datetime(df['last_reconciled_at'])
+            
+            # Generate analysis
+            analysis = {
+                'summary': self._generate_commission_summary(df),
+                'daily_errors': self._generate_daily_commission_errors(df),
+                'symbol_errors': self._generate_symbol_commission_errors(df),
+                'error_distribution': self._generate_commission_error_distribution(df),
+                'raw_data': df
+            }
+            
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze commission accuracy: {e}")
+            return self._empty_commission_analysis()
+    
+    def _empty_commission_analysis(self) -> Dict[str, Any]:
+        """Return empty commission analysis structure"""
+        return {
+            'summary': {
+                'total_reconciled_trades': 0,
+                'total_estimated_commission': 0.0,
+                'total_actual_commission': 0.0,
+                'total_commission_diff': 0.0,
+                'avg_error_pct': 0.0,
+                'avg_error_bps': 0.0,
+                'median_error_pct': 0.0,
+                'rmse_pct': 0.0
+            },
+            'daily_errors': pd.DataFrame(),
+            'symbol_errors': pd.DataFrame(),
+            'error_distribution': pd.DataFrame(),
+            'raw_data': pd.DataFrame()
+        }
+    
+    def _generate_commission_summary(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Generate commission accuracy summary statistics"""
+        if df.empty:
+            return self._empty_commission_analysis()['summary']
+        
+        return {
+            'total_reconciled_trades': len(df),
+            'total_estimated_commission': df['estimated_commission'].sum(),
+            'total_actual_commission': df['actual_commission'].sum(), 
+            'total_commission_diff': df['commission_diff'].sum(),
+            'avg_error_pct': df['commission_error_pct'].mean(),
+            'avg_error_bps': df['commission_error_bps'].mean(),
+            'median_error_pct': df['commission_error_pct'].median(),
+            'rmse_pct': np.sqrt((df['commission_error_pct'] ** 2).mean()),
+            'mae_pct': df['abs_error_pct'].mean(),
+            'max_error_pct': df['abs_error_pct'].max(),
+            'trades_within_1pct': (df['abs_error_pct'] <= 1.0).sum(),
+            'trades_within_5pct': (df['abs_error_pct'] <= 5.0).sum(),
+            'trades_within_10pct': (df['abs_error_pct'] <= 10.0).sum(),
+            'estimation_accuracy_1pct': (df['abs_error_pct'] <= 1.0).mean() * 100,
+            'estimation_accuracy_5pct': (df['abs_error_pct'] <= 5.0).mean() * 100,
+            'estimation_accuracy_10pct': (df['abs_error_pct'] <= 10.0).mean() * 100
+        }
+    
+    def _generate_symbol_commission_errors(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Generate per-symbol commission error analysis"""
+        if df.empty:
+            return pd.DataFrame()
+        
+        symbol_errors = df.groupby('symbol').agg({
+            'fill_id': 'count',
+            'commission_diff': ['sum', 'mean'],
+            'commission_error_pct': ['mean', 'std'],
+            'abs_error_pct': ['mean', 'max'],
+            'commission_error_bps': 'mean',
+            'notional_value': 'sum'
+        }).round(4)
+        
+        # Flatten column names  
+        symbol_errors.columns = [f"{col[0]}_{col[1]}" if col[1] else col[0] for col in symbol_errors.columns]
+        symbol_errors = symbol_errors.rename(columns={
+            'fill_id_count': 'trades',
+            'commission_diff_sum': 'total_diff',
+            'commission_diff_mean': 'avg_diff',
+            'commission_error_pct_mean': 'avg_error_pct',
+            'commission_error_pct_std': 'error_pct_std',
+            'abs_error_pct_mean': 'mae_pct',
+            'abs_error_pct_max': 'max_error_pct',
+            'commission_error_bps_mean': 'avg_error_bps',
+            'notional_value_sum': 'total_notional'
+        })
+        
+        return symbol_errors.reset_index().sort_values('total_notional', ascending=False)
+    
+    def _generate_daily_commission_errors(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Generate daily commission error analysis"""
+        if df.empty:
+            return pd.DataFrame()
+        
+        df['date'] = df['fill_time'].dt.date
+        daily_errors = df.groupby('date').agg({
+            'fill_id': 'count',
+            'commission_diff': ['sum', 'mean'],
+            'commission_error_pct': ['mean', 'std'],
+            'abs_error_pct': ['mean', 'max'],
+            'commission_error_bps': 'mean',
+            'notional_value': 'sum'
+        }).round(4)
+        
+        # Flatten column names
+        daily_errors.columns = [f"{col[0]}_{col[1]}" if col[1] else col[0] for col in daily_errors.columns]
+        daily_errors = daily_errors.rename(columns={
+            'fill_id_count': 'trades',
+            'commission_diff_sum': 'total_diff',
+            'commission_diff_mean': 'avg_diff',
+            'commission_error_pct_mean': 'avg_error_pct',
+            'commission_error_pct_std': 'error_pct_std',
+            'abs_error_pct_mean': 'mae_pct',
+            'abs_error_pct_max': 'max_error_pct',
+            'commission_error_bps_mean': 'avg_error_bps',
+            'notional_value_sum': 'total_notional'
+        })
+        
+        return daily_errors.reset_index()
+    
+    def _generate_commission_error_distribution(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Generate commission error distribution analysis"""
+        if df.empty:
+            return pd.DataFrame()
+        
+        # Create error buckets
+        error_buckets = [
+            ('0-1%', (df['abs_error_pct'] <= 1.0).sum()),
+            ('1-5%', ((df['abs_error_pct'] > 1.0) & (df['abs_error_pct'] <= 5.0)).sum()),
+            ('5-10%', ((df['abs_error_pct'] > 5.0) & (df['abs_error_pct'] <= 10.0)).sum()),
+            ('10-25%', ((df['abs_error_pct'] > 10.0) & (df['abs_error_pct'] <= 25.0)).sum()),
+            ('>25%', (df['abs_error_pct'] > 25.0).sum())
+        ]
+        
+        distribution = pd.DataFrame(error_buckets, columns=['error_range', 'trade_count'])
+        distribution['percentage'] = (distribution['trade_count'] / len(df) * 100).round(2)
+        
+        return distribution
+    
+    def generate_cost_html_report_with_accuracy(self, start_date: date, end_date: date) -> str:
+        """
+        Generate HTML cost analysis report with commission accuracy section
+        
+        Args:
+            start_date: Report start date
+            end_date: Report end date
+            
+        Returns:
+            HTML report string with commission accuracy analysis
+        """
+        logger.info(f"Generating enhanced cost HTML report from {start_date} to {end_date}")
+        
+        try:
+            # Get main cost analysis
+            cost_analysis = self.analyze_costs(start_date, end_date)
+            
+            # Get commission accuracy 
+            commission_accuracy = self.analyze_commission_accuracy(start_date, end_date)
+            
+            # Get existing HTML
+            base_html = self._generate_html_report(cost_analysis)
+            
+            # Add commission accuracy section
+            if commission_accuracy['summary']['total_reconciled_trades'] > 0:
+                accuracy_html = self._generate_commission_accuracy_html(commission_accuracy)
+                # Insert before the closing body tag
+                base_html = base_html.replace('</body>', accuracy_html + '</body>')
+            
+            return base_html
+            
+        except Exception as e:
+            logger.error(f"Failed to generate enhanced cost HTML report: {e}")
+            return f"<html><body><h1>Error</h1><p>Failed to generate report: {e}</p></body></html>"
+    
+    def _generate_commission_accuracy_html(self, commission_accuracy: Dict[str, Any]) -> str:
+        """Generate HTML section for commission accuracy"""
+        acc_summary = commission_accuracy['summary']
+        
+        html = f"""
+        <div style="margin-top: 30px; border-top: 2px solid #ccc; padding-top: 20px;">
+            <h2>Commission Estimation Accuracy</h2>
+            <div class="summary-box">
+                <div class="metric">
+                    <div>Reconciled Trades</div>
+                    <div class="metric-value">{acc_summary['total_reconciled_trades']:,}</div>
+                </div>
+                <div class="metric">
+                    <div>Estimated Total</div>
+                    <div class="metric-value">${acc_summary['total_estimated_commission']:.2f}</div>
+                </div>
+                <div class="metric">
+                    <div>Actual Total</div>
+                    <div class="metric-value">${acc_summary['total_actual_commission']:.2f}</div>
+                </div>
+                <div class="metric">
+                    <div>Total Difference</div>
+                    <div class="metric-value {'warning' if abs(acc_summary['total_commission_diff']) > 10 else 'good'}">${acc_summary['total_commission_diff']:.2f}</div>
+                </div>
+                <div class="metric">
+                    <div>Avg Error</div>
+                    <div class="metric-value {'warning' if abs(acc_summary['avg_error_pct']) > 5 else 'good'}">{acc_summary['avg_error_pct']:.2f}%</div>
+                </div>
+                <div class="metric">
+                    <div>Accuracy (±5%)</div>
+                    <div class="metric-value {'good' if acc_summary['estimation_accuracy_5pct'] > 90 else 'warning'}">{acc_summary['estimation_accuracy_5pct']:.1f}%</div>
+                </div>
+            </div>
+        """
+        
+        # Add symbol error table if available
+        if not commission_accuracy['symbol_errors'].empty:
+            html += """
+            <h3>Commission Error by Symbol (Top 10)</h3>
+            <table>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Trades</th>
+                    <th>Total Diff ($)</th>
+                    <th>Avg Error (%)</th>
+                    <th>MAE (%)</th>
+                    <th>Max Error (%)</th>
+                </tr>
+            """
+            
+            for _, row in commission_accuracy['symbol_errors'].head(10).iterrows():
+                error_class = 'warning' if abs(row['avg_error_pct']) > 5 else 'good'
+                html += f"""
+                <tr>
+                    <td>{row['symbol']}</td>
+                    <td>{row['trades']}</td>
+                    <td class="{error_class}">${row['total_diff']:.2f}</td>
+                    <td class="{error_class}">{row['avg_error_pct']:.2f}%</td>
+                    <td>{row['mae_pct']:.2f}%</td>
+                    <td>{row['max_error_pct']:.2f}%</td>
+                </tr>
+                """
+            
+            html += "</table>"
+        
+        html += "</div>"
+        return html
+    
     def close(self):
         """Close database connections"""
         if self.storage:

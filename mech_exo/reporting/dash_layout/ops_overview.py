@@ -156,9 +156,52 @@ def create_ops_overview_layout():
                 ])
             ], title="📊 System Resources", item_id="resources"),
             
-            # Risk & Trading Status Section
+            # Risk & Trading Status Section (Enhanced Day 2 Module 4)
             dbc.AccordionItem([
                 html.Div([
+                    # Live Risk Panel Row
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H5("📊 Live PnL Monitor", className="card-title"),
+                                    html.Div(id="live-pnl-display"),
+                                    # Monthly P&L Badge (Day 3 Module 5)
+                                    html.Hr(),
+                                    html.H6("Monthly P&L", className="text-muted"),
+                                    html.Div(id="monthly-pnl-badge"),
+                                    # Drill Status Badge (Day 4 Module 4)
+                                    html.Hr(),
+                                    html.H6("Last Drill", className="text-muted"),
+                                    html.Div(id="drill-status-badge"),
+                                    # Auto-refresh interval for 1-minute updates as specified
+                                    dcc.Interval(
+                                        id='interval-pnl',
+                                        interval=60*1000,  # 1 minute refresh
+                                        n_intervals=0
+                                    )
+                                ])
+                            ], color="light", className="h-100")
+                        ], width=4),
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H5("🚨 Kill-Switch Status", className="card-title"),
+                                    html.Div(id="killswitch-status-display")
+                                ])
+                            ], color="light", className="h-100")
+                        ], width=4),
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H5("⚖️ Risk Health", className="card-title"),
+                                    html.Div(id="risk-health-summary")
+                                ])
+                            ], color="light", className="h-100")
+                        ], width=4)
+                    ], className="mb-3"),
+                    
+                    # Existing Risk & Trading Status Row
                     dbc.Row([
                         dbc.Col([
                             html.H5("Current Risk Breaches"),
@@ -367,6 +410,49 @@ def register_ops_overview_callbacks():
             logger.error(f"Failed to update resources section: {e}")
             return html.P("Error loading resources", className="text-danger"), html.P("Error", className="text-danger")
     
+    @callback(
+        [
+            Output('live-pnl-display', 'children'),
+            Output('monthly-pnl-badge', 'children'),
+            Output('drill-status-badge', 'children'),
+            Output('killswitch-status-display', 'children'),
+            Output('risk-health-summary', 'children')
+        ],
+        [
+            Input('interval-pnl', 'n_intervals'),
+            Input('interval-ops', 'n_intervals')
+        ]
+    )
+    def update_risk_panel(pnl_intervals, ops_intervals):
+        """Update live risk panel (Day 2 Module 4 + Day 3 Module 5 + Day 4 Module 4)"""
+        try:
+            # Get live PnL data
+            pnl_data = _get_live_pnl_data()
+            pnl_display = _render_live_pnl_display(pnl_data)
+            
+            # Get monthly PnL data (Day 3 Module 5)
+            monthly_pnl_data = _get_monthly_pnl_data()
+            monthly_pnl_badge = _render_monthly_pnl_badge(monthly_pnl_data)
+            
+            # Get drill status data (Day 4 Module 4)
+            drill_data = _get_drill_status_data()
+            drill_badge = _render_drill_status_badge(drill_data)
+            
+            # Get kill-switch status
+            killswitch_data = _get_killswitch_data()
+            killswitch_display = _render_killswitch_display(killswitch_data)
+            
+            # Get risk health summary
+            risk_health_data = _get_risk_health_data()
+            risk_health_display = _render_risk_health_display(risk_health_data)
+            
+            return pnl_display, monthly_pnl_badge, drill_badge, killswitch_display, risk_health_display
+            
+        except Exception as e:
+            logger.error(f"Failed to update risk panel: {e}")
+            error_msg = html.P("Error loading data", className="text-danger")
+            return error_msg, error_msg, error_msg, error_msg, error_msg
+
     @callback(
         [
             Output('risk-breaches-table', 'children'),
@@ -974,3 +1060,416 @@ def _render_greylist_badge() -> html.Span:
     except Exception as e:
         logger.error(f"Failed to render greylist badge: {e}")
         return dbc.Badge("Greylist: Error", color="danger", className="me-2")
+
+
+# Day 2 Module 4: Risk Panel Functions
+
+def _get_live_pnl_data() -> Dict[str, Any]:
+    """Get live PnL data for risk panel"""
+    try:
+        from ..query import get_health_data
+        health_data = get_health_data()
+        
+        return {
+            'day_loss_pct': health_data.get('day_loss_pct', 0.0),
+            'day_loss_ok': health_data.get('day_loss_ok', True),
+            'live_nav': health_data.get('live_nav', 0.0),
+            'day_start_nav': health_data.get('day_start_nav', 0.0),
+            'last_updated': health_data.get('last_updated', 'Unknown')
+        }
+    except Exception as e:
+        logger.error(f"Failed to get live PnL data: {e}")
+        return {
+            'day_loss_pct': 0.0,
+            'day_loss_ok': True,
+            'live_nav': 0.0,
+            'day_start_nav': 0.0,
+            'last_updated': 'Error',
+            'error': str(e)
+        }
+
+
+def _render_live_pnl_display(pnl_data: Dict[str, Any]) -> html.Div:
+    """Render live PnL display with color-coded indicator"""
+    if 'error' in pnl_data:
+        return html.Div([
+            html.P("❌ PnL data unavailable", className="text-danger"),
+            html.Small(pnl_data['error'], className="text-muted")
+        ])
+    
+    day_loss_pct = pnl_data.get('day_loss_pct', 0.0)
+    day_loss_ok = pnl_data.get('day_loss_ok', True)
+    live_nav = pnl_data.get('live_nav', 0.0)
+    day_start_nav = pnl_data.get('day_start_nav', 0.0)
+    
+    # Color-coded indicator as specified: green (> -0.4%), yellow (-0.4% to -0.8%), red (≤ -0.8%)
+    if day_loss_pct > -0.4:
+        indicator_color = "success"
+        indicator_icon = "fas fa-circle text-success"
+        status_text = "HEALTHY"
+    elif day_loss_pct >= -0.8:
+        indicator_color = "warning"
+        indicator_icon = "fas fa-circle text-warning"
+        status_text = "WARNING"
+    else:
+        indicator_color = "danger"
+        indicator_icon = "fas fa-circle text-danger"
+        status_text = "CRITICAL"
+    
+    return html.Div([
+        # Numeric today-PnL as specified
+        html.H4([
+            html.I(className=indicator_icon + " me-2"),
+            f"{day_loss_pct:+.2f}%"
+        ], className=f"text-{indicator_color}"),
+        
+        # Status badge
+        dbc.Badge(status_text, color=indicator_color, className="mb-2"),
+        
+        # NAV details
+        html.Div([
+            html.Small(f"Live NAV: ${live_nav:,.2f}", className="d-block"),
+            html.Small(f"Start NAV: ${day_start_nav:,.2f}", className="d-block"),
+            html.Small(f"Updated: {pnl_data.get('last_updated', 'Unknown')}", className="text-muted")
+        ])
+    ])
+
+
+def _get_killswitch_data() -> Dict[str, Any]:
+    """Get kill-switch status data"""
+    try:
+        from ..query import get_health_data
+        health_data = get_health_data()
+        
+        return {
+            'trading_enabled': health_data.get('trading_enabled', True),
+            'killswitch_reason': health_data.get('killswitch_reason', 'System operational'),
+            'last_updated': health_data.get('last_updated', 'Unknown')
+        }
+    except Exception as e:
+        logger.error(f"Failed to get kill-switch data: {e}")
+        return {
+            'trading_enabled': True,
+            'killswitch_reason': 'Status unavailable',
+            'last_updated': 'Error',
+            'error': str(e)
+        }
+
+
+def _render_killswitch_display(killswitch_data: Dict[str, Any]) -> html.Div:
+    """Render kill-switch status display"""
+    if 'error' in killswitch_data:
+        return html.Div([
+            html.P("❌ Kill-switch status unavailable", className="text-danger"),
+            html.Small(killswitch_data['error'], className="text-muted")
+        ])
+    
+    trading_enabled = killswitch_data.get('trading_enabled', True)
+    reason = killswitch_data.get('killswitch_reason', 'System operational')
+    
+    if trading_enabled:
+        icon = "fas fa-play-circle text-success"
+        status_text = "TRADING ENABLED"
+        badge_color = "success"
+    else:
+        icon = "fas fa-stop-circle text-danger"
+        status_text = "TRADING DISABLED"
+        badge_color = "danger"
+    
+    return html.Div([
+        html.H5([
+            html.I(className=icon + " me-2"),
+            status_text
+        ]),
+        
+        dbc.Badge(badge_color.upper(), color=badge_color, className="mb-2"),
+        
+        html.Div([
+            html.Small(f"Reason: {reason}", className="d-block"),
+            html.Small(f"Updated: {killswitch_data.get('last_updated', 'Unknown')}", className="text-muted")
+        ])
+    ])
+
+
+def _get_risk_health_data() -> Dict[str, Any]:
+    """Get risk health summary data"""
+    try:
+        from ..query import get_health_data
+        health_data = get_health_data()
+        
+        return {
+            'risk_ok': health_data.get('risk_ok', False),
+            'day_loss_ok': health_data.get('day_loss_ok', True),
+            'trading_enabled': health_data.get('trading_enabled', True),
+            'system_status': health_data.get('system_status', 'unknown'),
+            'fills_today': health_data.get('fills_today', 0)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get risk health data: {e}")
+        return {
+            'risk_ok': False,
+            'day_loss_ok': True,
+            'trading_enabled': True,
+            'system_status': 'error',
+            'fills_today': 0,
+            'error': str(e)
+        }
+
+
+def _render_risk_health_display(risk_health_data: Dict[str, Any]) -> html.Div:
+    """Render risk health summary display"""
+    if 'error' in risk_health_data:
+        return html.Div([
+            html.P("❌ Risk health unavailable", className="text-danger"),
+            html.Small(risk_health_data['error'], className="text-muted")
+        ])
+    
+    risk_ok = risk_health_data.get('risk_ok', False)
+    day_loss_ok = risk_health_data.get('day_loss_ok', True)
+    trading_enabled = risk_health_data.get('trading_enabled', True)
+    system_status = risk_health_data.get('system_status', 'unknown')
+    fills_today = risk_health_data.get('fills_today', 0)
+    
+    # Overall health status
+    if risk_ok and day_loss_ok and trading_enabled and system_status == 'operational':
+        overall_icon = "fas fa-shield-alt text-success"
+        overall_status = "ALL SYSTEMS GO"
+        overall_color = "success"
+    elif not day_loss_ok or not trading_enabled:
+        overall_icon = "fas fa-exclamation-triangle text-danger"
+        overall_status = "CRITICAL RISK"
+        overall_color = "danger"
+    else:
+        overall_icon = "fas fa-exclamation-triangle text-warning"
+        overall_status = "MINOR ISSUES"
+        overall_color = "warning"
+    
+    return html.Div([
+        html.H5([
+            html.I(className=overall_icon + " me-2"),
+            overall_status
+        ]),
+        
+        dbc.Badge(overall_color.upper(), color=overall_color, className="mb-2"),
+        
+        # Health indicators
+        html.Div([
+            html.Div([
+                html.I(className="fas fa-check-circle text-success me-1" if risk_ok else "fas fa-times-circle text-danger me-1"),
+                html.Small("Risk Limits OK" if risk_ok else "Risk Violation")
+            ], className="d-block"),
+            
+            html.Div([
+                html.I(className="fas fa-check-circle text-success me-1" if day_loss_ok else "fas fa-times-circle text-danger me-1"),
+                html.Small("PnL Within Limits" if day_loss_ok else "PnL Breach")
+            ], className="d-block"),
+            
+            html.Div([
+                html.I(className="fas fa-check-circle text-success me-1" if trading_enabled else "fas fa-times-circle text-danger me-1"),
+                html.Small("Trading Active" if trading_enabled else "Trading Halted")
+            ], className="d-block"),
+            
+            html.Small(f"Fills today: {fills_today}", className="text-muted mt-1 d-block")
+        ])
+    ])
+
+
+# Day 3 Module 5: Monthly P&L Badge Functions
+
+def _get_drill_status_data() -> Dict[str, Any]:
+    """Get drill status data for dashboard badge"""
+    try:
+        from ...dags.drill_flow import get_last_drill_info
+        
+        # Get last drill information
+        last_drill = get_last_drill_info()
+        
+        if last_drill:
+            drill_date = last_drill['drill_date']
+            days_ago = last_drill['days_ago']
+            passed = last_drill['passed']
+            dry_run = last_drill['dry_run']
+            
+            # Color rules: green < 90 days, yellow 90-120, red > 120
+            if days_ago < 90:
+                badge_color = 'success'
+                status = 'CURRENT'
+            elif days_ago <= 120:
+                badge_color = 'warning'
+                status = 'DUE SOON'
+            else:
+                badge_color = 'danger'
+                status = 'OVERDUE'
+            
+            # Override color if last drill failed
+            if not passed:
+                badge_color = 'danger'
+                status = 'FAILED'
+            
+            return {
+                'drill_date': drill_date,
+                'days_ago': days_ago,
+                'passed': passed,
+                'dry_run': dry_run,
+                'badge_color': badge_color,
+                'status': status,
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        else:
+            # No drills found
+            return {
+                'drill_date': None,
+                'days_ago': None,
+                'passed': False,
+                'dry_run': True,
+                'badge_color': 'danger',
+                'status': 'NO DRILLS',
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+    except Exception as e:
+        logger.error(f"Failed to get drill status data: {e}")
+        return {
+            'drill_date': None,
+            'days_ago': None,
+            'passed': False,
+            'dry_run': True,
+            'badge_color': 'danger',
+            'status': 'ERROR',
+            'last_updated': 'Error',
+            'error': str(e)
+        }
+
+
+def _render_drill_status_badge(drill_data: Dict[str, Any]) -> html.Div:
+    """Render drill status badge with color-coded indicator"""
+    if 'error' in drill_data:
+        return html.Div([
+            dbc.Badge("Last Drill: Error", color="danger", className="me-2"),
+            html.Small(drill_data['error'], className="text-muted")
+        ])
+    
+    drill_date = drill_data.get('drill_date')
+    days_ago = drill_data.get('days_ago')
+    passed = drill_data.get('passed', False)
+    dry_run = drill_data.get('dry_run', True)
+    status = drill_data.get('status', 'UNKNOWN')
+    badge_color = drill_data.get('badge_color', 'secondary')
+    
+    if drill_date:
+        # Format date display
+        try:
+            drill_date_obj = date.fromisoformat(drill_date)
+            date_display = drill_date_obj.strftime('%Y-%m-%d')
+        except:
+            date_display = str(drill_date)
+        
+        # Create badge text
+        if days_ago == 0:
+            time_text = "today"
+        elif days_ago == 1:
+            time_text = "1 day ago"
+        else:
+            time_text = f"{days_ago} days ago"
+        
+        # Add status indicators
+        status_indicators = []
+        if not passed:
+            status_indicators.append("❌")
+        elif dry_run:
+            status_indicators.append("🧪")
+        else:
+            status_indicators.append("✅")
+        
+        badge_text = f"{''.join(status_indicators)} {date_display} ({time_text})"
+        
+        return html.Div([
+            dbc.Badge([
+                html.I(className="fas fa-sync-alt me-1"),
+                badge_text
+            ], color=badge_color, className="me-2", 
+            title=f"Last rollback drill: {status}"),
+            
+            html.Small(f"Status: {status}", className="text-muted")
+        ])
+    else:
+        return html.Div([
+            dbc.Badge([
+                html.I(className="fas fa-exclamation-triangle me-1"),
+                "No Drills Found"
+            ], color="danger", className="me-2",
+            title="No rollback drills have been executed"),
+            
+            html.Small("Status: NO DRILLS", className="text-muted")
+        ])
+
+
+def _get_monthly_pnl_data() -> Dict[str, Any]:
+    """Get monthly P&L data for dashboard badge"""
+    try:
+        from ...utils.monthly_loss_guard import get_mtd_summary
+        
+        # Get MTD summary
+        mtd_summary = get_mtd_summary()
+        
+        return {
+            'mtd_pct': mtd_summary.get('mtd_pct', 0.0),
+            'threshold_pct': mtd_summary.get('threshold_pct', -3.0),
+            'threshold_breached': mtd_summary.get('threshold_breached', False),
+            'status': mtd_summary.get('status', 'UNKNOWN'),
+            'status_color': mtd_summary.get('status_color', 'secondary'),
+            'month_year': mtd_summary.get('month_year', 'Unknown'),
+            'last_updated': mtd_summary.get('last_updated', 'Unknown')
+        }
+    except Exception as e:
+        logger.error(f"Failed to get monthly PnL data: {e}")
+        return {
+            'mtd_pct': 0.0,
+            'threshold_pct': -3.0,
+            'threshold_breached': False,
+            'status': 'ERROR',
+            'status_color': 'danger',
+            'month_year': 'Unknown',
+            'last_updated': 'Error',
+            'error': str(e)
+        }
+
+
+def _render_monthly_pnl_badge(monthly_data: Dict[str, Any]) -> html.Div:
+    """Render monthly P&L badge with color-coded indicator"""
+    if 'error' in monthly_data:
+        return html.Div([
+            dbc.Badge("Monthly P&L: Error", color="danger", className="me-2"),
+            html.Small(monthly_data['error'], className="text-muted")
+        ])
+    
+    mtd_pct = monthly_data.get('mtd_pct', 0.0)
+    status = monthly_data.get('status', 'UNKNOWN')
+    month_year = monthly_data.get('month_year', 'Unknown')
+    
+    # Color rules as specified:
+    # Green > 0%, Yellow 0 … -2%, Red ≤ -3%
+    if mtd_pct > 0:
+        badge_color = "success"
+        indicator_icon = "fas fa-arrow-up"
+    elif mtd_pct >= -2.0:
+        badge_color = "warning"
+        indicator_icon = "fas fa-minus"
+    else:
+        badge_color = "danger"
+        indicator_icon = "fas fa-arrow-down"
+    
+    # Show red specifically for threshold breach (≤ -3%)
+    if mtd_pct <= -3.0:
+        badge_color = "danger"
+        indicator_icon = "fas fa-exclamation-triangle"
+    
+    return html.Div([
+        dbc.Badge([
+            html.I(className=indicator_icon + " me-1"),
+            f"{mtd_pct:+.1f}%"
+        ], color=badge_color, className="me-2", 
+        title=f"Month-to-Date return for {month_year}"),
+        
+        html.Small(f"MTD {month_year}", className="text-muted")
+    ])

@@ -1,0 +1,738 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Risk Control Dashboard",
+    "tags": ["risk", "trading", "mech-exo"],
+    "style": "dark",
+    "timezone": "UTC",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h"],
+      "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+    },
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": []
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "risk_ops_ok",
+            "legendFormat": "Operational",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {
+                    "text": "DOWN",
+                    "color": "red"
+                  },
+                  "1": {
+                    "text": "OK",
+                    "color": "green"
+                  }
+                },
+                "type": "value"
+              }
+            ],
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": 0
+                },
+                {
+                  "color": "green", 
+                  "value": 1
+                }
+              ]
+            },
+            "unit": "none"
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Today P&L",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "risk_today_pnl_pct",
+            "legendFormat": "Today %",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": -0.8
+                },
+                {
+                  "color": "yellow",
+                  "value": -0.4
+                },
+                {
+                  "color": "green",
+                  "value": 0
+                }
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Monthly P&L",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "risk_month_pnl_pct",
+            "legendFormat": "MTD %",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": -3.0
+                },
+                {
+                  "color": "yellow",
+                  "value": -2.0
+                },
+                {
+                  "color": "green",
+                  "value": 0
+                }
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 4,
+        "title": "Alert Level",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "risk_alert_level",
+            "legendFormat": "Alert",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {
+                    "text": "NORMAL",
+                    "color": "green"
+                  },
+                  "1": {
+                    "text": "WARNING",
+                    "color": "yellow"
+                  },
+                  "2": {
+                    "text": "CRITICAL",
+                    "color": "red"
+                  }
+                },
+                "type": "value"
+              }
+            ],
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 1
+                },
+                {
+                  "color": "red",
+                  "value": 2
+                }
+              ]
+            },
+            "unit": "none"
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        }
+      },
+      {
+        "id": 5,
+        "title": "VaR 95% vs Limit",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "risk_var_95_usd",
+            "legendFormat": "VaR 95%",
+            "refId": "A"
+          },
+          {
+            "expr": "2000000",
+            "legendFormat": "Limit ($2M)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 1400000
+                },
+                {
+                  "color": "red",
+                  "value": 1800000
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 4
+        }
+      },
+      {
+        "id": 6,
+        "title": "VaR Utilization",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "risk_var_95_utilization_pct",
+            "legendFormat": "VaR 95%",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "max": 100,
+            "min": 0,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 70
+                },
+                {
+                  "color": "red",
+                  "value": 90
+                }
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 4
+        }
+      },
+      {
+        "id": 7,
+        "title": "Position Count",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "risk_position_count",
+            "legendFormat": "Positions",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 50
+                },
+                {
+                  "color": "red",
+                  "value": 100
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 12
+        }
+      },
+      {
+        "id": 8,
+        "title": "Total Exposure",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "risk_total_exposure_usd",
+            "legendFormat": "Exposure",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 10000000
+                },
+                {
+                  "color": "red",
+                  "value": 20000000
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 12
+        }
+      },
+      {
+        "id": 9,
+        "title": "Data Age",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "risk_data_age_seconds",
+            "legendFormat": "Age",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 300
+                },
+                {
+                  "color": "red",
+                  "value": 600
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 12
+        }
+      },
+      {
+        "id": 10,
+        "title": "SLO: System Uptime",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "avg_over_time(risk_ops_ok[1h]) * 100",
+            "legendFormat": "Uptime %",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 99.5
+                },
+                {
+                  "color": "green",
+                  "value": 99.9
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 12
+        }
+      },
+      {
+        "id": 11,
+        "title": "P&L Trend",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "risk_today_pnl_pct",
+            "legendFormat": "Today P&L %",
+            "refId": "A"
+          },
+          {
+            "expr": "risk_month_pnl_pct",
+            "legendFormat": "MTD P&L %",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": -3
+                },
+                {
+                  "color": "yellow",
+                  "value": -1
+                },
+                {
+                  "color": "green",
+                  "value": 0
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 12,
+        "title": "Exporter Health",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(risk_exporter_scrapes_total[5m])",
+            "legendFormat": "Scrapes/sec",
+            "refId": "A"
+          },
+          {
+            "expr": "risk_exporter_scrape_duration_seconds",
+            "legendFormat": "Scrape Duration",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {
+          "h": 6,
+          "w": 24,
+          "x": 0,
+          "y": 24
+        }
+      },
+      {
+        "id": 8,
+        "title": "SLO Error Budget",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "risk:error_budget_remaining",
+            "legendFormat": "Error Budget Remaining",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 2,
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 98
+                },
+                {
+                  "color": "yellow", 
+                  "value": 99
+                },
+                {
+                  "color": "green",
+                  "value": 99.5
+                }
+              ]
+            },
+            "displayName": "Error Budget"
+          }
+        },
+        "options": {
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"]
+          },
+          "textMode": "auto",
+          "colorMode": "background"
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 8,
+          "x": 0,
+          "y": 30
+        }
+      },
+      {
+        "id": 9,
+        "title": "SLO Availability (24h)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "risk:availability_24h",
+            "legendFormat": "Availability",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 3,
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 98
+                },
+                {
+                  "color": "yellow",
+                  "value": 99
+                },
+                {
+                  "color": "green", 
+                  "value": 99.5
+                }
+              ]
+            },
+            "displayName": "24h Availability"
+          }
+        },
+        "options": {
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"]
+          },
+          "textMode": "auto",
+          "colorMode": "background"
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 8,
+          "x": 8,
+          "y": 30
+        }
+      },
+      {
+        "id": 10,
+        "title": "Downtime (24h)",
+        "type": "stat", 
+        "targets": [
+          {
+            "expr": "risk:downtime_minutes_24h",
+            "legendFormat": "Downtime Minutes",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "m",
+            "decimals": 1,
+            "min": 0,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 14.4
+                },
+                {
+                  "color": "red",
+                  "value": 28.8
+                }
+              ]
+            },
+            "displayName": "Downtime"
+          }
+        },
+        "options": {
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"]
+          },
+          "textMode": "auto",
+          "colorMode": "background"
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 8,
+          "x": 16,
+          "y": 30
+        }
+      },
+      {
+        "id": 11,
+        "title": "Error Budget Burn Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "risk:error_budget_burn_rate_1h",
+            "legendFormat": "1h Burn Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "risk:error_budget_burn_rate_5m", 
+            "legendFormat": "5m Burn Rate",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 2,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "yellow",
+                  "value": 0.1
+                },
+                {
+                  "color": "red",
+                  "value": 0.5
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom"
+          }
+        },
+        "gridPos": {
+          "h": 6,
+          "w": 24,
+          "x": 0,
+          "y": 34
+        }
+      }
+    ]
+  },
+  "overwrite": true
+}

@@ -1,0 +1,231 @@
+# Prometheus Alert Rules for Risk Control System
+# Defines thresholds and conditions for risk-related alerts
+
+groups:
+  - name: risk_system_health
+    interval: 30s
+    rules:
+      # System operational status
+      - alert: SystemDownAlert
+        expr: risk_ops_ok == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: risk_system
+        annotations:
+          summary: "Risk control system is down"
+          description: "The risk control system has been unavailable for {{ $value }} minutes"
+          downtime: "{{ $value }}m"
+          runbook_url: "https://docs.mech-exo.com/runbooks/system-down"
+
+      # Data freshness
+      - alert: DataStaleAlert
+        expr: risk_data_age_seconds > 300
+        for: 2m
+        labels:
+          severity: warning
+          component: data_pipeline
+        annotations:
+          summary: "Risk data is stale"
+          description: "Risk data is {{ $value }} seconds old (threshold: 300s)"
+          age: "{{ $value }}s"
+
+      - alert: DataCriticallyStaleAlert
+        expr: risk_data_age_seconds > 600
+        for: 1m
+        labels:
+          severity: critical
+          component: data_pipeline
+        annotations:
+          summary: "Risk data is critically stale"
+          description: "Risk data is {{ $value }} seconds old (critical threshold: 600s)"
+          age: "{{ $value }}s"
+
+  - name: risk_limits
+    interval: 30s
+    rules:
+      # VaR 95% alerts
+      - alert: HighVarWarning
+        expr: risk_var_95_utilization_pct > 70
+        for: 1m
+        labels:
+          severity: warning
+          component: var_monitoring
+        annotations:
+          summary: "VaR 95% approaching limit"
+          description: "VaR 95% utilization is {{ $value }}% (warning threshold: 70%)"
+          utilization: "{{ $value }}%"
+          var_95: "{{ query \"risk_var_95_usd\" | first | value }}"
+          var_limit: "2000000"
+
+      - alert: VarBreachAlert
+        expr: risk_var_95_utilization_pct > 90
+        for: 30s
+        labels:
+          severity: critical
+          component: var_monitoring
+        annotations:
+          summary: "VaR 95% limit breach"
+          description: "VaR 95% utilization is {{ $value }}% (critical threshold: 90%)"
+          utilization: "{{ $value }}%"
+          var_95: "{{ query \"risk_var_95_usd\" | first | value }}"
+          var_limit: "2000000"
+          runbook_url: "https://docs.mech-exo.com/runbooks/var-breach"
+
+      # VaR 99% alerts
+      - alert: HighVar99Warning
+        expr: risk_var_99_utilization_pct > 70
+        for: 1m
+        labels:
+          severity: warning
+          component: var_monitoring
+        annotations:
+          summary: "VaR 99% approaching limit"
+          description: "VaR 99% utilization is {{ $value }}% (warning threshold: 70%)"
+          utilization: "{{ $value }}%"
+          var_99: "{{ query \"risk_var_99_usd\" | first | value }}"
+          var_limit: "3000000"
+
+      - alert: Var99BreachAlert
+        expr: risk_var_99_utilization_pct > 90
+        for: 30s
+        labels:
+          severity: critical
+          component: var_monitoring
+        annotations:
+          summary: "VaR 99% limit breach"
+          description: "VaR 99% utilization is {{ $value }}% (critical threshold: 90%)"
+          utilization: "{{ $value }}%"
+          var_99: "{{ query \"risk_var_99_usd\" | first | value }}"
+          var_limit: "3000000"
+
+  - name: pnl_monitoring
+    interval: 30s
+    rules:
+      # Daily P&L alerts
+      - alert: DailyLossWarning
+        expr: risk_today_pnl_pct < -0.4
+        for: 2m
+        labels:
+          severity: warning
+          component: pnl_monitoring
+        annotations:
+          summary: "Daily P&L approaching loss threshold"
+          description: "Today's P&L is {{ $value }}% (warning threshold: -0.4%)"
+          pnl_pct: "{{ $value }}%"
+
+      - alert: DailyLossBreach
+        expr: risk_today_pnl_pct < -0.8
+        for: 1m
+        labels:
+          severity: critical
+          component: pnl_monitoring
+        annotations:
+          summary: "Daily loss threshold breached"
+          description: "Today's P&L is {{ $value }}% (critical threshold: -0.8%)"
+          pnl_pct: "{{ $value }}%"
+          runbook_url: "https://docs.mech-exo.com/runbooks/daily-loss"
+
+      # Monthly P&L alerts
+      - alert: MonthlyLossWarning
+        expr: risk_month_pnl_pct < -2.0
+        for: 5m
+        labels:
+          severity: warning
+          component: pnl_monitoring
+        annotations:
+          summary: "Monthly P&L approaching loss threshold"
+          description: "Month-to-date P&L is {{ $value }}% (warning threshold: -2.0%)"
+          pnl_pct: "{{ $value }}%"
+
+      - alert: MonthlyLossBreach
+        expr: risk_month_pnl_pct < -3.0
+        for: 2m
+        labels:
+          severity: critical
+          component: pnl_monitoring
+        annotations:
+          summary: "Monthly loss threshold breached"
+          description: "Month-to-date P&L is {{ $value }}% (critical threshold: -3.0%)"
+          pnl_pct: "{{ $value }}%"
+          runbook_url: "https://docs.mech-exo.com/runbooks/monthly-loss"
+
+  - name: system_performance
+    interval: 60s
+    rules:
+      # SLO monitoring (99.5% uptime)
+      - alert: SLOViolation
+        expr: avg_over_time(risk_ops_ok[1h]) < 0.995
+        for: 5m
+        labels:
+          severity: warning
+          component: slo_monitoring
+        annotations:
+          summary: "SLO violation: System uptime below 99.5%"
+          description: "System uptime over last hour is {{ $value | humanizePercentage }} (SLO: 99.5%)"
+          uptime: "{{ $value | humanizePercentage }}"
+          slo_target: "99.5%"
+
+      # Exporter health
+      - alert: ExporterDown
+        expr: up{job="risk-exporter"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Risk metrics exporter is down"
+          description: "The Prometheus exporter for risk metrics is not responding"
+
+      - alert: ExporterSlowScrapes
+        expr: risk_exporter_scrape_duration_seconds > 10
+        for: 3m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Risk exporter scrapes are slow"
+          description: "Risk API scrapes taking {{ $value }}s (threshold: 10s)"
+          scrape_duration: "{{ $value }}s"
+
+  - name: position_monitoring
+    interval: 60s
+    rules:
+      # Position concentration
+      - alert: HighPositionCount
+        expr: risk_position_count > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: position_monitoring
+        annotations:
+          summary: "High number of positions"
+          description: "Portfolio has {{ $value }} positions (threshold: 100)"
+          position_count: "{{ $value }}"
+
+      # Total exposure
+      - alert: HighExposure
+        expr: risk_total_exposure_usd > 20000000
+        for: 5m
+        labels:
+          severity: warning
+          component: position_monitoring
+        annotations:
+          summary: "High portfolio exposure"
+          description: "Total exposure is ${{ $value }} (threshold: $20M)"
+          exposure_usd: "${{ $value }}"
+
+  - name: alert_system_health
+    interval: 60s
+    rules:
+      # Meta-monitoring: Alert when alert level is high
+      - alert: HighAlertLevel
+        expr: risk_alert_level >= 2
+        for: 1m
+        labels:
+          severity: critical
+          component: alert_system
+        annotations:
+          summary: "System is in critical alert state"
+          description: "Alert level is {{ $value }} (0=normal, 1=warning, 2=critical)"
+          alert_level: "{{ $value }}"

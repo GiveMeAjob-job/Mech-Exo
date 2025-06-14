@@ -21,7 +21,9 @@ def score_cli(symbols: Optional[List[str]] = None,
              output_file: str = "idea_scores.csv",
              config_path: str = "config/factors.yml",
              top_n: Optional[int] = None,
-             verbose: bool = False) -> dict:
+             verbose: bool = False,
+             use_rot_alpha: bool = False,
+             rot_alpha_weight: float = 0.2) -> dict:
     """
     CLI function for idea scoring.
     
@@ -33,6 +35,8 @@ def score_cli(symbols: Optional[List[str]] = None,
         config_path: Path to factors configuration
         top_n: Return only top N results
         verbose: Enable verbose logging
+        use_rot_alpha: Whether to integrate rotational alpha signals
+        rot_alpha_weight: Weight for rotational alpha signals
         
     Returns:
         Scoring metadata
@@ -57,6 +61,9 @@ def score_cli(symbols: Optional[List[str]] = None,
     
     if use_ml and ml_scores_file:
         logger.info(f"   ML scores file: {ml_scores_file}")
+        
+    if use_rot_alpha:
+        logger.info(f"   Rotational Alpha: Enabled (weight: {rot_alpha_weight:.1%})")
     
     try:
         # Initialize scorer
@@ -64,9 +71,10 @@ def score_cli(symbols: Optional[List[str]] = None,
         
         # Generate scores
         if symbols:
-            results = scorer.score(symbols, ml_scores_file=ml_scores_file)
+            results = scorer.score(symbols, ml_scores_file=ml_scores_file, 
+                                 use_rot_alpha=use_rot_alpha, rot_alpha_weight=rot_alpha_weight)
         else:
-            results = scorer.rank_universe()
+            results = scorer.rank_universe(use_rot_alpha=use_rot_alpha, rot_alpha_weight=rot_alpha_weight)
         
         if results.empty:
             logger.warning("No scores generated")

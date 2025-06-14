@@ -5,7 +5,97 @@ All notable changes to the Mech-Exo trading system will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 🚀 [0.5.0] - 2025-06-15 - **Operations & Production Readiness Release**
+## 🚀 [0.5.1] - 2025-06-13 - **Risk Control GA & Production Deployment**
+
+This critical release marks the General Availability of the Risk Control system with complete production deployment infrastructure, observability integration, and enterprise-grade security management.
+
+### ✨ New Features
+
+#### **Risk Control Dashboard (Complete)**
+- **Real-time Risk Monitoring**: Live VaR tracking, position analysis, and alert management dashboard
+- **Interactive Risk Heatmap**: Visual risk breakdown by sector/strategy with color-coded severity levels
+- **VaR Timeline & Limits**: 95%/99% confidence intervals with historical trending and threshold alerts
+- **Position Concentration Analysis**: Risk contribution breakdown with long/short exposure monitoring
+- **Emergency Risk Procedures**: Integrated kill-switch controls and emergency position management
+
+#### **Production Deployment Infrastructure**
+- **Blue/Green Deployment**: Zero-downtime deployment strategy with health checks and automatic rollback
+- **Kubernetes Integration**: Full container orchestration with secrets management and auto-scaling
+- **Environment Management**: Staging, production, and development environment separation
+- **Health Check Validation**: Comprehensive endpoint testing (`/healthz`, `/riskz`, `/metrics`)
+- **Traffic Switching**: Automated traffic promotion with rollback capabilities
+
+#### **Enterprise Observability Stack**
+- **Prometheus Metrics Export**: Risk metrics exporter with 15+ operational metrics and SLO tracking
+- **Grafana Dashboards**: Production-ready risk monitoring with alert thresholds and uptime SLOs
+- **Alertmanager Integration**: PagerDuty, Telegram, and email alerting with intelligent routing
+- **Alert Rules**: 25+ production alert rules covering VaR breaches, system health, and data freshness
+- **99.5% SLO Monitoring**: Service Level Objective tracking with violation alerting
+
+#### **Secrets & Security Management**
+- **GitHub Actions Integration**: Secure secret management with validation and rotation procedures
+- **Kubernetes Secrets**: Production-grade secret injection with ConfigMap separation
+- **Environment Variable Validation**: Automated secret format checking and health validation
+- **Security Documentation**: Complete operational security guide with rotation procedures
+- **Node.js Memory Management**: OOM prevention with configurable heap size limits
+
+#### **Staging & Integration Testing**
+- **End-to-End Smoke Tests**: Complete system testing with mock and real API integration
+- **Staging Dry-Run**: Production simulation with kill-switch drills and alert testing
+- **Unit Test Coverage**: Risk panel component testing with callback validation
+- **Integration Validation**: Telegram, Grafana, and API endpoint testing suite
+- **Performance Testing**: Load testing and memory optimization validation
+
+### 🔧 Production Operations
+
+#### **Go-Live Checklist**
+- **20-Point Verification**: Comprehensive pre-deployment checklist covering all critical systems
+- **Deployment Procedures**: Step-by-step production deployment with validation gates
+- **Emergency Procedures**: Immediate rollback procedures and escalation chains
+- **Success Criteria**: Technical and business success metrics for post-deployment validation
+- **Sign-off Process**: Multi-stakeholder approval workflow for production releases
+
+#### **Monitoring & Alerting**
+- **Real-time Risk Metrics**: Live VaR, P&L, and position monitoring with configurable thresholds
+- **System Health Monitoring**: Operational status tracking with 99.5% uptime SLO
+- **Alert Escalation**: 3-tier escalation (On-call → Lead → CTO) with timing controls
+- **Data Freshness Alerts**: Automated detection of stale data with critical thresholds
+- **Performance Monitoring**: Response time tracking and bottleneck identification
+
+### 🛡️ Security & Compliance
+
+#### **Secret Management**
+- **Rotation Procedures**: Automated and manual secret rotation with zero-downtime updates
+- **Access Control**: Least-privilege access with role-based permissions
+- **Audit Logging**: Complete secret access and modification tracking
+- **Emergency Procedures**: Incident response for compromised credentials
+- **Compliance Documentation**: Security best practices and operational procedures
+
+### 📊 Metrics & SLOs
+
+#### **Service Level Objectives**
+- **System Uptime**: 99.5% availability with automated monitoring
+- **Response Time**: < 200ms for health endpoints with alerting
+- **Data Freshness**: < 5 minutes for risk data with stale data detection
+- **Alert Delivery**: < 30 seconds for critical alerts with backup channels
+- **Deployment Success**: > 95% successful deployments with automated rollback
+
+### 🚨 Breaking Changes
+- **Node.js Memory**: Requires `NODE_OPTIONS="--max-old-space-size=4096"` for large YAML processing
+- **Environment Variables**: New required secrets (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+- **API Endpoints**: New `/riskz` and `/metrics` endpoints for monitoring integration
+- **Configuration**: Risk limits now configured via environment variables and ConfigMaps
+
+### 📋 Migration Guide
+1. **Set Required Secrets**: Configure Telegram and AWS credentials
+2. **Deploy Infrastructure**: Apply Kubernetes manifests and secrets
+3. **Run Blue/Green Deployment**: Use deployment script for zero-downtime updates
+4. **Configure Monitoring**: Import Grafana dashboards and alert rules
+5. **Validate Health Checks**: Ensure all endpoints respond correctly
+
+---
+
+## 🚀 [0.5.0] - 2025-06-15 - **Operations & Production Readiness Release** (Previous)
 
 This major release completes the production readiness journey with comprehensive operational tools, monitoring, and hardening. Mech-Exo is now ready for limited production deployment with enterprise-grade operations support.
 

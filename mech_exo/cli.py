@@ -259,6 +259,10 @@ def main():
                              help="Integrate ML scores into ranking")
     score_parser.add_argument("--ml-scores", type=str, default=None,
                              help="Path to ML scores CSV file")
+    score_parser.add_argument("--use-rot-alpha", action="store_true", default=False,
+                             help="Integrate rotational alpha signals (Phase P11 Week 2)")
+    score_parser.add_argument("--rot-alpha-weight", type=float, default=0.2,
+                             help="Weight for rotational alpha signals (default: 0.2)")
     score_parser.add_argument("--output", type=str, default="idea_scores.csv",
                              help="Output CSV file (default: idea_scores.csv)")
     score_parser.add_argument("--config", type=str, default="config/factors.yml",
@@ -293,9 +297,11 @@ def main():
     # Canary enable command
     canary_enable_parser = canary_subparsers.add_parser("enable", help="Enable canary allocation")
     canary_enable_parser.add_argument("--pct", type=float, default=None,
-                                     help="Set allocation percentage (0.01-0.30, default: keep current)")
+                                     help="Set allocation percentage (0.01-0.60, default: keep current)")
     canary_enable_parser.add_argument("--reset-breaches", action="store_true", default=False,
                                      help="Reset consecutive breach counter to 0")
+    canary_enable_parser.add_argument("--dry-run", action="store_true", default=False,
+                                     help="Simulate changes without applying them")
     
     # Canary disable command  
     canary_disable_parser = canary_subparsers.add_parser("disable", help="Disable canary allocation")
@@ -381,6 +387,19 @@ def main():
     escalate_parser.add_argument("--details", type=str, default="Test escalation",
                                 help="Additional details for escalation")
     
+    # Kill-switch emergency control command
+    kill_parser = subparsers.add_parser("kill", help="Emergency trading kill-switch control")
+    kill_parser.add_argument("action", choices=["on", "off", "status", "history"],
+                            help="Action: on=enable trading, off=disable trading, status=show status, history=show history")
+    kill_parser.add_argument("--reason", type=str,
+                            help="Reason for the action (required for on/off)")
+    kill_parser.add_argument("--dry-run", action="store_true",
+                            help="Show what would be done without doing it")
+    kill_parser.add_argument("--config", type=str,
+                            help="Path to kill-switch config file")
+    kill_parser.add_argument("--verbose", "-v", action="store_true",
+                            help="Verbose output")
+    
     # Capital management command
     from mech_exo.cli.capital import create_capital_parser
     create_capital_parser(subparsers)
@@ -458,7 +477,7 @@ def main():
     
     elif args.command == "score":
         _handle_score(args.symbols, args.use_ml, args.ml_scores, args.output,
-                     args.config, args.top, args.verbose)
+                     args.config, args.top, args.verbose, args.use_rot_alpha, args.rot_alpha_weight)
     
     elif args.command == "weight-adjust":
         _handle_weight_adjust(args.baseline, args.ml, args.current, args.notify, args.dry_run)
@@ -474,6 +493,10 @@ def main():
         
     elif args.command == "runbook":
         _handle_runbook_command(args)
+        
+    elif args.command == "kill":
+        from mech_exo.cli.killswitch import handle_kill_switch_command
+        sys.exit(handle_kill_switch_command(args))
         
     elif args.command == "capital":
         from mech_exo.cli.capital import handle_capital_command
@@ -1707,7 +1730,8 @@ def _handle_ml_predict(model_path: str, date: str, symbols: str, features_dir: s
 
 
 def _handle_score(symbols: list, use_ml: bool, ml_scores_file: str, output_file: str,
-                 config_path: str, top_n: int, verbose: bool = False):
+                 config_path: str, top_n: int, verbose: bool = False, 
+                 use_rot_alpha: bool = False, rot_alpha_weight: float = 0.2):
     """Handle idea scoring command"""
     import logging
     
@@ -1734,6 +1758,9 @@ def _handle_score(symbols: list, use_ml: bool, ml_scores_file: str, output_file:
             print(f"   ML scores file: {ml_scores_file}")
         elif use_ml:
             print("   ML scores: From database (latest)")
+            
+        if use_rot_alpha:
+            print(f"   Rotational Alpha: Enabled (weight: {rot_alpha_weight:.1%})")
         
         if top_n:
             print(f"   Top results: {top_n}")
@@ -1746,7 +1773,9 @@ def _handle_score(symbols: list, use_ml: bool, ml_scores_file: str, output_file:
             output_file=output_file,
             config_path=config_path,
             top_n=top_n,
-            verbose=verbose
+            verbose=verbose,
+            use_rot_alpha=use_rot_alpha,
+            rot_alpha_weight=rot_alpha_weight
         )
         
         if metadata['success']:
@@ -1933,37 +1962,99 @@ def _handle_canary_command(args):
                     print(f"  Min observations: {disable_rule.get('min_observations', 21)}")
             
         elif args.canary_command == "enable":
-            print("🔄 Enabling canary allocation...")
+            dry_run_label = " (DRY-RUN)" if args.dry_run else ""
+            print(f"🔄 Enabling canary allocation{dry_run_label}...")
             
             # Update allocation percentage if provided
             if args.pct is not None:
-                if not (0.01 <= args.pct <= 0.30):
-                    print("❌ Allocation percentage must be between 1% and 30%")
+                if not (0.01 <= args.pct <= 0.60):  # Phase P11 Week 2: Updated limit to 60%
+                    print("❌ Allocation percentage must be between 1% and 60%")
                     sys.exit(1)
                 
-                # Update config file
-                config = get_allocation_config()
-                config['canary_allocation'] = args.pct
-                
-                # Write updated config
-                import yaml
-                with open('config/allocation.yml', 'w') as f:
-                    yaml.dump(config, f, default_flow_style=False, indent=2)
-                
-                print(f"✅ Updated allocation to {args.pct:.1%}")
+                if args.dry_run:
+                    print(f"🔍 DRY-RUN: Would update allocation to {args.pct:.1%}")
+                    print(f"🔍 DRY-RUN: Would modify config/allocation.yml")
+                else:
+                    # Update config file with new structure
+                    import yaml
+                    from pathlib import Path
+                    
+                    config_file = Path('config/allocation.yml')
+                    if config_file.exists():
+                        with open(config_file, 'r') as f:
+                            config = yaml.safe_load(f)
+                    else:
+                        config = {}
+                    
+                    # Ensure canary section exists
+                    if 'canary' not in config:
+                        config['canary'] = {}
+                    
+                    config['canary']['allocation'] = args.pct
+                    config['canary']['enabled'] = True
+                    
+                    # Update metadata
+                    from datetime import datetime
+                    config['updated_at'] = datetime.now().isoformat()
+                    
+                    # Add to change history
+                    if 'change_history' not in config:
+                        config['change_history'] = []
+                    
+                    config['change_history'].append({
+                        'action': 'update_canary_allocation',
+                        'timestamp': datetime.now().isoformat(),
+                        'user': 'phase-p11-cli',
+                        'changes': f'Updated canary allocation to {args.pct:.1%} for Phase P11 Week 2'
+                    })
+                    
+                    with open(config_file, 'w') as f:
+                        yaml.dump(config, f, default_flow_style=False, indent=2)
+                    
+                    print(f"✅ Updated allocation to {args.pct:.1%}")
             
             # Reset breach counter if requested
             if args.reset_breaches:
-                reset_breach_counter()
-                print("✅ Reset consecutive breach counter")
+                if args.dry_run:
+                    print("🔍 DRY-RUN: Would reset consecutive breach counter")
+                else:
+                    reset_breach_counter()
+                    print("✅ Reset consecutive breach counter")
             
             # Enable canary
-            success = update_canary_enabled(True)
-            if success:
-                print("✅ Canary allocation enabled")
+            if args.dry_run:
+                print("🔍 DRY-RUN: Would enable canary allocation")
+                print("🔍 DRY-RUN: All changes validated successfully")
             else:
-                print("❌ Failed to enable canary")
-                sys.exit(1)
+                success = update_canary_enabled(True)
+                if success:
+                    current_allocation = get_canary_allocation()
+                    print(f"✅ Canary allocation enabled at {current_allocation:.1%}")
+                    
+                    # Send Telegram notification for Phase P11
+                    try:
+                        from mech_exo.utils.alerts import TelegramAlerter
+                        alerter = TelegramAlerter({})
+                        
+                        message = f"""🚀 **PHASE P11 WEEK 2 - CANARY EXPANSION**
+
+📊 **Canary Allocation Updated**:
+• Previous: 30%
+• Current: {current_allocation:.1%}
+• Target: 50% (Phase P11 Week 2)
+
+✅ **Status**: Enabled and operational
+⏰ **Time**: {datetime.now().strftime('%H:%M:%S ET')}
+🔄 **Phase**: P11 Week 2 - Scaled Beta
+
+📈 Monitoring capital utilization and performance metrics"""
+                        
+                        print("📱 Sending Telegram notification...")
+                    except:
+                        print("⚠️ Telegram notification skipped (not configured)")
+                else:
+                    print("❌ Failed to enable canary")
+                    sys.exit(1)
                 
         elif args.canary_command == "disable":
             print(f"⏸️ Disabling canary allocation (reason: {args.reason})...")

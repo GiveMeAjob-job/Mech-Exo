@@ -1,0 +1,133 @@
+# Test fixture for 50% canary capital allocation - Phase P11 Week 2
+# Used for testing capital validation and allocation logic
+
+capital_limits:
+  # Test accounts with 50% canary allocation
+  accounts:
+    # Primary canary account (35% allocation)
+    TEST_CANARY_001:
+      max_capital: 250000
+      currency: USD
+      enabled: true
+      added_date: "2025-06-13"
+      category: "canary"
+      allocation_pct: 35.0
+      notes: "Test primary canary - 50% allocation target"
+      
+    # Secondary canary account (15% allocation)  
+    TEST_CANARY_002:
+      max_capital: 150000
+      currency: USD
+      enabled: true
+      added_date: "2025-06-13"
+      category: "canary"
+      allocation_pct: 15.0
+      notes: "Test secondary canary"
+      
+    # Test staging account (5% allocation)
+    TEST_STAGING_001:
+      max_capital: 25000
+      currency: USD
+      enabled: true
+      added_date: "2025-06-13"
+      category: "staging"
+      allocation_pct: 5.0
+      notes: "Test staging account"
+      
+    # Test production account (remaining 45%)
+    TEST_PROD_001:
+      max_capital: 320000
+      currency: USD
+      enabled: true  
+      added_date: "2025-06-13"
+      category: "production"
+      allocation_pct: 45.0
+      notes: "Test production account"
+
+  # Global test settings
+  global:
+    total_max_capital: 745000  # Sum of all test accounts
+    default_currency: USD
+    safety_margin_pct: 10
+    
+    alerts:
+      warning_threshold_pct: 75
+      critical_threshold_pct: 90
+      
+    canary_monitoring:
+      max_daily_drawdown_pct: 2.0
+      max_position_concentration_pct: 15.0
+      max_sector_exposure_pct: 30.0
+      
+    check_frequency_minutes: 15
+    after_hours_frequency_minutes: 60
+
+# Test allocation configuration
+canary:
+  enabled: true
+  allocation: 0.50  # 50% canary allocation
+  
+  disable_rule:
+    sharpe_low: 0.0
+    confirm_days: 2
+    max_dd_pct: 2.0
+    min_observations: 21
+    
+  alert_channels:
+    - telegram
+
+# Test utilization tracking
+utilization:
+  last_check: "2025-06-13T16:00:00Z"
+  accounts:
+    TEST_CANARY_001:
+      buying_power: 250000
+      used_capital: 150000
+      utilization_pct: 60.0
+      last_updated: "2025-06-13T16:00:00Z"
+      status: "ok"
+      
+    TEST_CANARY_002:
+      buying_power: 150000
+      used_capital: 100000
+      utilization_pct: 66.7
+      last_updated: "2025-06-13T16:00:00Z"
+      status: "ok"
+      
+    TEST_STAGING_001:
+      buying_power: 25000
+      used_capital: 15000
+      utilization_pct: 60.0
+      last_updated: "2025-06-13T16:00:00Z"
+      status: "ok"
+      
+    TEST_PROD_001:
+      buying_power: 320000
+      used_capital: 200000
+      utilization_pct: 62.5
+      last_updated: "2025-06-13T16:00:00Z"
+      status: "ok"
+
+# Expected test validation results
+expected_validation:
+  total_canary_allocation_pct: 50.0  # 35% + 15% = 50%
+  canary_capital_total: 400000       # 250k + 150k = 400k
+  total_allocated_capital: 745000    # All accounts combined
+  validation_status: "PASS"
+  
+# Test scenarios
+test_scenarios:
+  - name: "canary_expansion_validation"
+    expected_canary_pct: 50.0
+    expected_accounts: 2
+    expected_total_canary: 400000
+    
+  - name: "capital_utilization_check"
+    max_utilization_pct: 90.0
+    warning_threshold_pct: 75.0
+    expected_warnings: 0
+    
+  - name: "allocation_balance_check"
+    min_canary_pct: 45.0
+    max_canary_pct: 55.0
+    expected_balance: true
